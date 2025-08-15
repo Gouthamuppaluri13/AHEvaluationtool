@@ -1,0 +1,10 @@
+streamlit
+pandas
+numpy
+plotly
+torch
+transformers
+scikit-learn
+faker
+alpha-vantage
+google-generativeai
