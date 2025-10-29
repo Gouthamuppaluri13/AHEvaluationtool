@@ -15,6 +15,10 @@ import torch
 import torch.nn as nn
 from transformers import BertTokenizer, BertModel
 import pickle
+from services.model_registry import ModelRegistry
+from models.online_predictor import OnlinePredictor
+from services.data_enrichment import DataEnrichmentService
+from services.fundraise_forecast import FundraiseForecastService
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -163,10 +167,39 @@ class InvestmentThesisGenerator:
 
 class NextGenVCEngine:
     def __init__(self, tavily_key, av_key, gemini_key):
-        self.predictor = AIPlusPredictor('ai_plus_model.pth', 'preprocessor.pkl'); self.market_intel = MarketIntelligence(gemini_key)
-        self.risk_matrix = ComprehensiveRiskMatrix(); self.simulation = InteractiveSimulation(); self.data_integrator = ExternalDataIntegrator(av_key)
-        self.thesis_gen = InvestmentThesisGenerator(gemini_key); self.synthesis_model = genai.GenerativeModel('gemini-1.5-flash')
+        self.predictor = AIPlusPredictor('ai_plus_model.pth', 'preprocessor.pkl')
+        self.market_intel = MarketIntelligence(gemini_key)
+        self.risk_matrix = ComprehensiveRiskMatrix()
+        self.simulation = InteractiveSimulation()
+        self.data_integrator = ExternalDataIntegrator(av_key)
+        self.thesis_gen = InvestmentThesisGenerator(gemini_key)
+        self.synthesis_model = genai.GenerativeModel('gemini-1.5-flash')
         self.strategies = {f.value: s() for f, s in zip(FocusArea, [LiveHealthyStrategy, MitigateClimateChangeStrategy, EnhanceUrbanLifestyleStrategy])}
+        
+        # Initialize new components
+        logger.info("Initializing new ML and enrichment components")
+        try:
+            self.model_registry = ModelRegistry()
+            model_path = self.model_registry.load_model()
+            self.online_predictor = OnlinePredictor(model_path)
+            logger.info("Online predictor initialized")
+        except Exception as e:
+            logger.warning(f"Failed to initialize online predictor: {e}")
+            self.online_predictor = OnlinePredictor()  # Will use heuristics
+        
+        try:
+            self.enrichment_service = DataEnrichmentService(tavily_api_key=tavily_key)
+            logger.info("Data enrichment service initialized")
+        except Exception as e:
+            logger.warning(f"Failed to initialize enrichment service: {e}")
+            self.enrichment_service = None
+        
+        try:
+            self.fundraise_service = FundraiseForecastService()
+            logger.info("Fundraise forecast service initialized")
+        except Exception as e:
+            logger.warning(f"Failed to initialize fundraise service: {e}")
+            self.fundraise_service = None
     def _c(self, o):
         if isinstance(o, dict): return {k: self._c(v) for k, v in o.items()}
         if isinstance(o, list): return [self._c(e) for e in o]
@@ -175,7 +208,23 @@ class NextGenVCEngine:
         if isinstance(o, Enum): return o.value
         return o
     def _create_synthesis_prompt_text(self, data: Dict) -> str:
-        profile = self._c(data['heuristic_profile']); verdict = self._c(data['final_verdict']); ssq = self._c(data['speedscale_quotient']); risks = self._c(data['risk_scores']); market = self._c(data['detailed_market_analysis'])
+        profile = self._c(data['heuristic_profile'])
+        verdict = self._c(data['final_verdict'])
+        ssq = self._c(data['speedscale_quotient'])
+        risks = self._c(data['risk_scores'])
+        market = self._c(data['detailed_market_analysis'])
+        
+        # Add India context if available
+        india_context = ""
+        enrichment = data.get('enrichment', {})
+        india_dataset = enrichment.get('india_funding_dataset_context', {})
+        if india_dataset:
+            india_context = f"""
+### India Funding Context (Dataset-Derived)
+- Median Round Size: ₹{india_dataset.get('median_amount_inr', 0):,.0f}
+- Yearly Rounds: {sum(india_dataset.get('yearly_rounds', {}).values())}
+- Top Investors: {', '.join(india_dataset.get('top_investors', [])[:3])}"""
+        
         summary = f"""- Company: {profile.get('company_name')} | Sector: {profile.get('sector')} | Stage: {profile.get('stage')}
 ### Final Verdict & SSQ
 - Predicted Valuation: {verdict.get('predicted_valuation_range_usd', 'N/A')}
@@ -190,7 +239,7 @@ class NextGenVCEngine:
 ### Market Context
 - TAM Summary: {market.get('total_addressable_market', {}).get('size', 'N/A')}
 - Top Competitor: {market.get('competitive_landscape', [{}])[0].get('name', 'N/A')}
-- Valuation Trends: {market.get('valuation_trends', {}).get('valuation_multiples', 'N/A')}"""
+- Valuation Trends: {market.get('valuation_trends', {}).get('valuation_multiples', 'N/A')}{india_context}"""
         return summary.strip()
     async def _get_final_verdict(self, raw_pred, market_intel, profile):
         p = f"""As a VC Partner, review a raw ML model prediction and market data to set a final, realistic valuation. Profile: Sector={profile.sector}, Stage={profile.stage}. Raw ML Prediction: Valuation=${raw_pred['predicted_next_valuation_usd']:,.0f}, Success Prob={raw_pred['success_probability']:.1%}. Market Valuation Trends: "{market_intel.get('valuation_trends', {'valuation_multiples': 'N/A'}).get('valuation_multiples', 'N/A')}". Task: Return ONLY a JSON object with the final, realistic numbers. Keys: "predicted_valuation_range_usd" (string, e.g., "$5M - $7M"), "success_probability_percent" (float)."""
@@ -200,18 +249,101 @@ class NextGenVCEngine:
             else: raise ValueError("No valid JSON found in final verdict response.")
         except: return {"predicted_valuation_range_usd": "N/A", "success_probability_percent": 0.0}
     async def comprehensive_analysis(self, inputs, comps_ticker):
-        strategy = self.strategies[inputs['focus_area']]; processed_scores = strategy.process_inputs(inputs)
-        profile = AdvancedStartupProfile(company_name=inputs['company_name'], stage=inputs['stage'], sector=inputs['sector'],focus_area=FocusArea(inputs['focus_area']), annual_revenue=inputs['arr'], monthly_burn=inputs['burn'],cash_reserves=inputs['cash'], team_size=inputs['team_size'],founder_personality_type=FounderPersonality(inputs.get('founder_type', 'visionary')),investor_quality_score=inputs['investor_quality_score'], advisor_network_strength=inputs['advisor_network_strength'],market_share_percent=0, **processed_scores)
-        ssq_calculator = SpeedscaleQuotientCalculator(inputs, profile); ssq_report = ssq_calculator.calculate()
+        strategy = self.strategies[inputs['focus_area']]
+        processed_scores = strategy.process_inputs(inputs)
+        profile = AdvancedStartupProfile(
+            company_name=inputs['company_name'],
+            stage=inputs['stage'],
+            sector=inputs['sector'],
+            focus_area=FocusArea(inputs['focus_area']),
+            annual_revenue=inputs['arr'],
+            monthly_burn=inputs['burn'],
+            cash_reserves=inputs['cash'],
+            team_size=inputs['team_size'],
+            founder_personality_type=FounderPersonality(inputs.get('founder_type', 'visionary')),
+            investor_quality_score=inputs['investor_quality_score'],
+            advisor_network_strength=inputs['advisor_network_strength'],
+            market_share_percent=0,
+            **processed_scores
+        )
+        
+        ssq_calculator = SpeedscaleQuotientCalculator(inputs, profile)
+        ssq_report = ssq_calculator.calculate()
+        
+        # Run predictions in parallel: legacy and online
         pred_task = asyncio.to_thread(self.predictor.predict, inputs)
+        online_pred_task = asyncio.to_thread(self.online_predictor.predict, inputs) if self.online_predictor else None
+        
+        # Run market intelligence and enrichment in parallel
         intel_task = self.market_intel.get_market_intel(inputs['sector'], inputs['company_name'], inputs['product_desc'])
-        raw_prediction, market_analysis = await asyncio.gather(pred_task, intel_task)
-        final_verdict = await self._get_final_verdict(raw_prediction, market_analysis, profile)
+        enrichment_task = asyncio.to_thread(
+            self.enrichment_service.enrich,
+            inputs['company_name'],
+            inputs['sector'],
+            inputs['product_desc']
+        ) if self.enrichment_service else None
+        
+        # Gather parallel tasks
+        tasks = [pred_task, intel_task]
+        if online_pred_task:
+            tasks.append(online_pred_task)
+        if enrichment_task:
+            tasks.append(enrichment_task)
+        
+        results = await asyncio.gather(*tasks)
+        raw_prediction = results[0]
+        market_analysis = results[1]
+        online_prediction = results[2] if online_pred_task else None
+        enrichment = results[3] if enrichment_task else {}
+        
+        # Merge enrichment into market_deep_dive
+        if enrichment:
+            market_analysis['indian_funding_trends'] = enrichment.get('indian_funding_trends', {})
+            market_analysis['recent_news'] = enrichment.get('recent_news', [])
+            market_analysis['india_funding_dataset_context'] = enrichment.get('india_funding_dataset_context', {})
+        
+        # Prefer online prediction, fallback to legacy
+        prediction_to_use = online_prediction if online_prediction and online_prediction.get('meta', {}).get('source') == 'online_model' else raw_prediction
+        
+        final_verdict = await self._get_final_verdict(prediction_to_use, market_analysis, profile)
+        
+        # Continue with simulation and comps
         sim_task = asyncio.to_thread(self.simulation.run_simulation, profile)
         comps_task = asyncio.to_thread(self.data_integrator.get_public_comps, comps_ticker)
         sim_res, comps_res = await asyncio.gather(sim_task, comps_task)
+        
         risk = self.risk_matrix.assess(profile)
-        synthesis_data = {"final_verdict": final_verdict, "heuristic_profile": asdict(profile), "detailed_market_analysis": market_analysis, "risk_scores": risk, "speedscale_quotient": ssq_report}
+        
+        # Get fundraise forecast
+        fundraise_forecast = None
+        if self.fundraise_service:
+            try:
+                fundraise_forecast = await asyncio.to_thread(self.fundraise_service.predict, inputs)
+            except Exception as e:
+                logger.error(f"Fundraise forecast failed: {e}")
+        
+        # Prepare synthesis data
+        synthesis_data = {
+            "final_verdict": final_verdict,
+            "heuristic_profile": asdict(profile),
+            "detailed_market_analysis": market_analysis,
+            "risk_scores": risk,
+            "speedscale_quotient": ssq_report,
+            "enrichment": enrichment
+        }
         summary_for_memo = self._create_synthesis_prompt_text(synthesis_data)
         investment_memo = await self.thesis_gen.generate(summary_for_memo)
-        return {'final_verdict': final_verdict, 'investment_memo': investment_memo, 'risk_matrix': risk, 'simulation': sim_res, 'market_deep_dive': market_analysis, 'public_comps': comps_res, 'profile': profile, 'ssq_report': ssq_report}
+        
+        return {
+            'final_verdict': final_verdict,
+            'investment_memo': investment_memo,
+            'risk_matrix': risk,
+            'simulation': sim_res,
+            'market_deep_dive': market_analysis,
+            'public_comps': comps_res,
+            'profile': profile,
+            'ssq_report': ssq_report,
+            'online_ml_prediction': online_prediction,
+            'legacy_ml_prediction': raw_prediction,
+            'fundraise_forecast': fundraise_forecast
+        }

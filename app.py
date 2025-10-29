@@ -54,26 +54,105 @@ def create_spider_chart(data, title):
     fig = go.Figure(go.Scatterpolar(r=list(data.values()), theta=list(data.keys()), fill='toself', line=dict(color='#E60023'), fillcolor='rgba(230, 0, 35, 0.2)')); fig.update_layout(title=dict(text=title, font=dict(family='Roboto Mono', size=16, color='#E60023')), polar=dict(bgcolor='rgba(22, 27, 34, 0.5)', radialaxis=dict(range=[0, 10], color='#7D8590'), angularaxis=dict(color='#E6EDF3')), showlegend=False, height=300, paper_bgcolor='rgba(0,0,0,0)', font=dict(family='Roboto Mono', color='#E6EDF3')); return fig
 
 def display_deep_dive_intel(data: Dict[str, Any]):
-    st.subheader("Market Deep-Dive");
-    if not isinstance(data, dict) or "error" in data: st.error(data.get("error", "Market analysis data is not available.")); return
-    key_map = {"total_addressable_market": "🎯 Total Addressable Market", "competitive_landscape": "⚔️ Competitive Landscape", "moat_analysis": "🏰 Moat Analysis", "valuation_trends": "💲 Valuation & Funding Trends", "macro_factors": "🌍 Macro Factors"}
+    st.subheader("Market Deep-Dive")
+    if not isinstance(data, dict) or "error" in data:
+        st.error(data.get("error", "Market analysis data is not available."))
+        return
+    
+    key_map = {
+        "total_addressable_market": "🎯 Total Addressable Market",
+        "competitive_landscape": "⚔️ Competitive Landscape",
+        "moat_analysis": "🏰 Moat Analysis",
+        "valuation_trends": "💲 Valuation & Funding Trends",
+        "macro_factors": "🌍 Macro Factors"
+    }
+    
     for key, title in key_map.items():
         if key in data:
-            st.markdown(f"<h4>{title}</h4>", unsafe_allow_html=True); content = data[key]
+            st.markdown(f"<h4>{title}</h4>", unsafe_allow_html=True)
+            content = data[key]
             if isinstance(content, dict):
                 for sub_key, value in content.items():
                     if isinstance(value, list):
-                        st.markdown(f"**{sub_key.replace('_', ' ').title()}:**");
-                        for item in value: st.markdown(f"- {item}")
-                    else: st.markdown(f"**{sub_key.replace('_', ' ').title()}:** {value}")
+                        st.markdown(f"**{sub_key.replace('_', ' ').title()}:**")
+                        for item in value:
+                            st.markdown(f"- {item}")
+                    else:
+                        st.markdown(f"**{sub_key.replace('_', ' ').title()}:** {value}")
             elif isinstance(content, list):
                 for item in content:
                     if isinstance(item, dict):
                         with st.container(border=True):
                             st.markdown(f"**{item.get('name', 'N/A')}** ({item.get('estimated_market_share', 'N/A')} Share)")
                             for sub_key, value in item.items():
-                                if sub_key != 'name' and sub_key != 'estimated_market_share': st.markdown(f"**{sub_key.replace('_', ' ').title()}:** {value}")
-            else: st.markdown(content)
+                                if sub_key != 'name' and sub_key != 'estimated_market_share':
+                                    st.markdown(f"**{sub_key.replace('_', ' ').title()}:** {value}")
+            else:
+                st.markdown(content)
+    
+    # Add India-specific sections
+    if "indian_funding_trends" in data and data["indian_funding_trends"]:
+        st.markdown("---")
+        st.markdown("<h4>🇮🇳 India Funding Trends (News-Derived)</h4>", unsafe_allow_html=True)
+        trends = data["indian_funding_trends"]
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            median_inr = trends.get('median_round_size_inr', 0)
+            st.metric("Median Round Size", f"₹{median_inr/10000000:.1f} Cr" if median_inr > 0 else "N/A")
+        with col2:
+            stage_counts = trends.get('round_counts_by_stage', {})
+            total_rounds = sum(stage_counts.values())
+            st.metric("Total Rounds (News)", total_rounds)
+        with col3:
+            top_invs = trends.get('top_investors', [])
+            st.metric("Top Investors Found", len(top_invs))
+        
+        if stage_counts:
+            st.markdown("**Round Distribution by Stage:**")
+            for stage, count in sorted(stage_counts.items(), key=lambda x: x[1], reverse=True):
+                st.markdown(f"- {stage}: {count}")
+        
+        if top_invs:
+            st.markdown("**Top Investors:**")
+            st.markdown(", ".join(top_invs[:5]))
+    
+    if "recent_news" in data and data["recent_news"]:
+        st.markdown("---")
+        st.markdown("<h4>📰 Recent News</h4>", unsafe_allow_html=True)
+        for news in data["recent_news"][:5]:
+            with st.expander(news.get('title', 'Untitled')):
+                st.markdown(news.get('content', 'No content'))
+                if news.get('url'):
+                    st.markdown(f"[Read more]({news['url']})")
+    
+    if "india_funding_dataset_context" in data and data["india_funding_dataset_context"]:
+        st.markdown("---")
+        st.markdown("<h4>📊 India Funding Dataset Context (Kaggle)</h4>", unsafe_allow_html=True)
+        context = data["india_funding_dataset_context"]
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            median_inr = context.get('median_amount_inr', 0)
+            st.metric("Median Round Size (Dataset)", f"₹{median_inr/10000000:.1f} Cr" if median_inr > 0 else "N/A")
+            st.metric("Total Rounds (Dataset)", context.get('rounds_total', 0))
+        with col2:
+            yearly = context.get('yearly_rounds', {})
+            if yearly:
+                st.markdown("**Yearly Distribution:**")
+                for year, count in sorted(yearly.items(), key=lambda x: x[0], reverse=True)[:5]:
+                    st.markdown(f"- {year}: {count} rounds")
+        
+        top_invs = context.get('top_investors', [])
+        if top_invs:
+            st.markdown("**Top Investors (Historical):**")
+            st.markdown(", ".join(top_invs[:5]))
+        
+        round_mix = context.get('round_mix', {})
+        if round_mix:
+            st.markdown("**Round Type Mix:**")
+            for round_type, count in sorted(round_mix.items(), key=lambda x: x[1], reverse=True)[:5]:
+                st.markdown(f"- {round_type}: {count}")
 
 def render_input_area():
     col1, col2 = st.columns([1, 5]); col1.image("Anthill Logo-Falcon.png", width=120); col2.title("Anthill AI+ Evaluation"); st.markdown("---"); inputs = {}
@@ -142,27 +221,152 @@ def render_analysis_area(report):
         for key in keys_to_clear:
             if key in st.session_state: del st.session_state[key]
         st.rerun()
-    render_summary_dashboard(report); st.markdown("---"); st.header("Deep Dive Analysis")
-    tab1, tab2, tab3, tab4 = st.tabs(["📝 Investment Memo", "📈 Risk & Financial Simulation", "🌐 Market Deep-Dive & Comps", "📥 Submitted Inputs"])
-    memo = report.get('investment_memo', {}); sim_res = report.get('simulation', {})
+    render_summary_dashboard(report)
+    st.markdown("---")
+    st.header("Deep Dive Analysis")
+    
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📝 Investment Memo",
+        "📈 Risk & Financial Simulation",
+        "🌐 Market Deep-Dive & Comps",
+        "💸 Fundraise Forecast",
+        "🤖 ML Predictions",
+        "📥 Submitted Inputs"
+    ])
+    
+    memo = report.get('investment_memo', {})
+    sim_res = report.get('simulation', {})
+    
     with tab1:
-        st.subheader("Executive Summary"); st.markdown(memo.get('executive_summary', 'Not available.'), unsafe_allow_html=True)
-        st.markdown("---"); c1, c2 = st.columns(2, gap="large")
-        with c1: st.subheader("Bull Case"); st.markdown(memo.get('bull_case_narrative', 'No bull case generated.'), unsafe_allow_html=True)
-        with c2: st.subheader("Bear Case"); st.markdown(memo.get('bear_case_narrative', 'No bear case generated.'), unsafe_allow_html=True)
+        st.subheader("Executive Summary")
+        st.markdown(memo.get('executive_summary', 'Not available.'), unsafe_allow_html=True)
+        st.markdown("---")
+        c1, c2 = st.columns(2, gap="large")
+        with c1:
+            st.subheader("Bull Case")
+            st.markdown(memo.get('bull_case_narrative', 'No bull case generated.'), unsafe_allow_html=True)
+        with c2:
+            st.subheader("Bear Case")
+            st.markdown(memo.get('bear_case_narrative', 'No bear case generated.'), unsafe_allow_html=True)
+    
     with tab2:
         c1, c2 = st.columns(2, gap="large")
-        with c1: st.plotly_chart(create_spider_chart(report.get('risk_matrix', {}), "Heuristic Risk Profile"), use_container_width=True)
+        with c1:
+            st.plotly_chart(create_spider_chart(report.get('risk_matrix', {}), "Heuristic Risk Profile"), use_container_width=True)
         with c2:
-            st.subheader("Financial Runway Simulation"); st.info(sim_res.get('narrative_summary', 'Simulation not available.'))
-            if not sim_res.get('time_series_data', pd.DataFrame()).empty: st.line_chart(sim_res['time_series_data'].set_index('Month'), color=["#E60023", "#7D8590"])
+            st.subheader("Financial Runway Simulation")
+            st.info(sim_res.get('narrative_summary', 'Simulation not available.'))
+            if not sim_res.get('time_series_data', pd.DataFrame()).empty:
+                st.line_chart(sim_res['time_series_data'].set_index('Month'), color=["#E60023", "#7D8590"])
+    
     with tab3:
-        display_deep_dive_intel(report.get('market_deep_dive', {})); st.markdown("---"); st.subheader("Public Comparables")
+        display_deep_dive_intel(report.get('market_deep_dive', {}))
+        st.markdown("---")
+        st.subheader("Public Comparables")
         comps = report.get('public_comps', {})
-        if "Error" in comps: st.error(comps["Error"])
-        elif comps: st.metric(label=f"Company: {comps.get('Company')}", value=comps.get('Price (₹)'), delta=f"Exchange: {comps.get('Market', 'N/A')}")
-        else: st.warning("No public comparable data available.")
-    with tab4: st.json(st.session_state.get('inputs', {}))
+        if "Error" in comps:
+            st.error(comps["Error"])
+        elif comps:
+            st.metric(label=f"Company: {comps.get('Company')}", value=comps.get('Price (₹)'), delta=f"Exchange: {comps.get('Market', 'N/A')}")
+        else:
+            st.warning("No public comparable data available.")
+    
+    with tab4:
+        st.subheader("💸 Fundraise Forecast")
+        forecast = report.get('fundraise_forecast')
+        
+        if forecast:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                prob_6m = forecast.get('round_likelihood_6m', 0)
+                st.metric("Round Probability (6 months)", f"{prob_6m:.1%}")
+            with col2:
+                prob_12m = forecast.get('round_likelihood_12m', 0)
+                st.metric("Round Probability (12 months)", f"{prob_12m:.1%}")
+            with col3:
+                expected_time = forecast.get('expected_time_to_next_round_months', 0)
+                st.metric("Expected Time to Next Round", f"{expected_time:.1f} months")
+            
+            st.markdown("---")
+            st.info("These predictions are based on calibrated models trained on historical funding data and current company metrics.")
+        else:
+            st.warning("Fundraise forecast not available. This may indicate missing training data or model initialization issues.")
+    
+    with tab5:
+        st.subheader("🤖 ML Predictions")
+        
+        online_pred = report.get('online_ml_prediction')
+        legacy_pred = report.get('legacy_ml_prediction')
+        
+        if online_pred:
+            st.markdown("### Online Model Results")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                prob_12m = online_pred.get('round_probability_12m', 0)
+                st.metric("Round Probability (12m)", f"{prob_12m:.1%}")
+            with col2:
+                prob_6m = online_pred.get('round_probability_6m', 0)
+                st.metric("Round Probability (6m)", f"{prob_6m:.1%}")
+            with col3:
+                valuation = online_pred.get('predicted_valuation_usd')
+                if valuation:
+                    st.metric("Predicted Valuation", f"${valuation:,.0f}")
+                else:
+                    st.metric("Predicted Valuation", "N/A")
+            
+            # Feature importances
+            importances = online_pred.get('feature_importances', {})
+            if importances:
+                st.markdown("### Feature Importances (Top 20)")
+                
+                # Create horizontal bar chart
+                import plotly.graph_objects as go
+                
+                features = list(importances.keys())[:20]
+                values = [importances[f] for f in features]
+                
+                fig = go.Figure(go.Bar(
+                    x=values,
+                    y=features,
+                    orientation='h',
+                    marker=dict(color='#E60023')
+                ))
+                
+                fig.update_layout(
+                    title="Most Important Features",
+                    xaxis_title="Importance",
+                    yaxis_title="Feature",
+                    height=600,
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(22, 27, 34, 0.5)',
+                    font=dict(family='Roboto Mono', color='#E6EDF3')
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            
+            # Model metadata
+            meta = online_pred.get('meta', {})
+            st.markdown(f"**Model Type:** {meta.get('model_type', 'Unknown')}")
+            st.markdown(f"**Source:** {meta.get('source', 'Unknown')}")
+        
+        if legacy_pred:
+            st.markdown("---")
+            st.markdown("### Legacy Model Results (For Comparison)")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                success_prob = legacy_pred.get('success_probability', 0)
+                st.metric("Success Probability", f"{success_prob:.1%}")
+            with col2:
+                next_val = legacy_pred.get('predicted_next_valuation_usd', 0)
+                st.metric("Next Valuation", f"${next_val:,.0f}")
+        
+        if not online_pred and not legacy_pred:
+            st.warning("ML predictions not available.")
+    
+    with tab6:
+        st.json(st.session_state.get('inputs', {}))
 
 async def main():
     if 'view' not in st.session_state: st.session_state.view = 'input'

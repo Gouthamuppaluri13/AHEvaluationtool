@@ -8,3 +8,10 @@ scikit-learn
 faker
 alpha-vantage
 google-generativeai
+requests
+lifelines
+joblib
+huggingface_hub
+kaggle
+scipy
+python-dotenv
