@@ -1,0 +1,32 @@
+{
+  "sectors": {
+    "FinTech": {
+      "rounds_total": 0,
+      "median_amount_inr": null,
+      "yearly_rounds": [],
+      "round_mix": [],
+      "top_investors": []
+    },
+    "E-commerce & D2C": {
+      "rounds_total": 0,
+      "median_amount_inr": null,
+      "yearly_rounds": [],
+      "round_mix": [],
+      "top_investors": []
+    },
+    "Digital Health": {
+      "rounds_total": 0,
+      "median_amount_inr": null,
+      "yearly_rounds": [],
+      "round_mix": [],
+      "top_investors": []
+    },
+    "Clean Energy": {
+      "rounds_total": 0,
+      "median_amount_inr": null,
+      "yearly_rounds": [],
+      "round_mix": [],
+      "top_investors": []
+    }
+  }
+}
