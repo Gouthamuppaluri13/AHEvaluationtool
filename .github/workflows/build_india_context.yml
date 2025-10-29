@@ -35,11 +35,23 @@ jobs:
           mkdir -p ~/.kaggle
           echo "{\"username\":\"${KAGGLE_USERNAME}\",\"key\":\"${KAGGLE_KEY}\"}" > ~/.kaggle/kaggle.json
           chmod 600 ~/.kaggle/kaggle.json
+          kaggle -v || true
           kaggle datasets list -s "startup-funding-india" -p 1 || true
+
+      - name: Ensure Python can import repo packages
+        run: |
+          echo "PYTHONPATH=${PYTHONPATH}:${GITHUB_WORKSPACE}" >> "$GITHUB_ENV"
+          python - << 'PY'
+          import sys, os
+          print("sys.path:", sys.path)
+          print("workspace contents:", os.listdir("."))
+          assert os.path.exists("models/training/build_india_funding_context.py"), "build_india_funding_context.py not found at models/training/"
+          PY
 
       - name: Build India funding index JSON
         run: |
-          python -m models.training.build_india_funding_context --dataset-ref sandeepnandi48/startup-funding-india-cleaned
+          # Call by file path to avoid package resolution issues
+          python models/training/build_india_funding_context.py --dataset-ref sandeepnandi48/startup-funding-india-cleaned
           test -f data/india_funding_index.json
           ls -lh data/india_funding_index.json
 
