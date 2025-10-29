@@ -1,4 +1,4 @@
-name: Train and publish startup model
+name: Train and publish startup model (hardened)
 
 on:
   workflow_dispatch:
@@ -37,13 +37,30 @@ jobs:
           mkdir -p ~/.kaggle
           echo "{\"username\":\"${KAGGLE_USERNAME}\",\"key\":\"${KAGGLE_KEY}\"}" > ~/.kaggle/kaggle.json
           chmod 600 ~/.kaggle/kaggle.json
+          # sanity check
+          kaggle datasets list -s startup-success -p 1 || true
+
+      - name: Download dataset and show CSVs
+        run: |
+          mkdir -p /tmp/kaggle_in
+          kaggle datasets download -d justinas/startup-success-prediction -p /tmp/kaggle_in --unzip
+          echo "Available CSV files:"
+          ls -lh /tmp/kaggle_in/*.csv || true
 
       - name: Train model from Kaggle dataset
         run: |
           python -m models.training.train_kaggle --dataset-ref justinas/startup-success-prediction --target-col status
           test -f models/startup_model.joblib
+          ls -lh models/startup_model.joblib
 
-      - name: Publish to Hugging Face (if token provided)
+      - name: Upload model as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup_model_joblib
+          path: models/startup_model.joblib
+
+      - name: Publish to Hugging Face (create repo if needed)
+        id: hf_upload
         if: env.HF_TOKEN != ''
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -51,11 +68,17 @@ jobs:
           MODEL_ARTIFACT_NAME: ${{ env.MODEL_ARTIFACT_NAME }}
         run: |
           python - << 'PY'
-          import os
-          from huggingface_hub import upload_file
+          import os, sys
+          from huggingface_hub import HfApi, create_repo, upload_file
           repo_id = os.environ["HUGGINGFACE_MODEL_ID"]
-          path = "models/startup_model.joblib"
           token = os.environ["HF_TOKEN"]
+          path = "models/startup_model.joblib"
+          # ensure repo exists
+          try:
+            create_repo(repo_id=repo_id, token=token, repo_type="model", exist_ok=True, private=False)
+          except Exception as e:
+            print("Repo creation warning:", e, file=sys.stderr)
+          # upload file
           upload_file(
               path_or_fileobj=path,
               path_in_repo=os.environ.get("MODEL_ARTIFACT_NAME","startup_model.joblib"),
@@ -67,8 +90,8 @@ jobs:
           PY
           echo "MODEL_ASSET_URL=https://huggingface.co/${HUGGINGFACE_MODEL_ID}/resolve/main/${MODEL_ARTIFACT_NAME}" >> $GITHUB_ENV
 
-      - name: Publish to GitHub Release (fallback if no HF token)
-        if: env.HF_TOKEN == ''
+      - name: Publish to GitHub Release (fallback or HF upload failed)
+        if: env.HF_TOKEN == '' || failure() && steps.hf_upload.outcome == 'failure'
         id: release
         uses: softprops/action-gh-release@v2
         with:
@@ -80,16 +103,16 @@ jobs:
           files: models/startup_model.joblib
 
       - name: Set MODEL_ASSET_URL repository variable (release fallback)
-        if: env.HF_TOKEN == ''
+        if: env.HF_TOKEN == '' || (steps.hf_upload.outcome == 'failure')
         uses: actions/github-script@v7
         with:
           script: |
-            const release = await github.rest.repos.getReleaseByTag({
+            const { data: release } = await github.rest.repos.getReleaseByTag({
               owner: context.repo.owner,
               repo: context.repo.repo,
               tag: "model-" + context.runId
             });
-            const asset = release.data.assets.find(a => a.name === "startup_model.joblib");
+            const asset = release.assets.find(a => a.name === "startup_model.joblib");
             if (asset) {
               const url = asset.browser_download_url;
               await github.rest.actions.updateRepoVariable({
