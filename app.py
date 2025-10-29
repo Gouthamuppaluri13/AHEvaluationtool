@@ -8,12 +8,12 @@ import logging
 from typing import Dict, Any
 
 from next_gen_vc_engine import NextGenVCEngine, FocusArea, FounderPersonality, AdvancedStartupProfile
-from ui_theme import apply_theme, hero, section_heading, card  # NEW: elegant theme
+from ui_theme import apply_theme, hero, section_heading, card  # Glass theme
 
-# Apply premium theme (Playfair Display + Space Mono)
+# Apply Apple-like glass theme
 apply_theme(page_title="Anthill AI+ Evaluation", page_icon="🦅")
 
-# Allow Streamlit Secrets to supply Hugging Face env for ModelRegistry
+# Map Streamlit secrets into env for ModelRegistry
 for k in ["HUGGINGFACE_MODEL_ID", "MODEL_ARTIFACT_NAME", "MODEL_ASSET_URL"]:
     try:
         val = st.secrets.get(k)
@@ -22,10 +22,10 @@ for k in ["HUGGINGFACE_MODEL_ID", "MODEL_ARTIFACT_NAME", "MODEL_ASSET_URL"]:
     except Exception:
         pass
 
-# Hero header
+# Hero
 hero(
     "Anthill AI+ Evaluation",
-    "A spacious, elegant VC copilot — Playfair Display headings · Space Mono for crisp numbers."
+    "Minimal, elegant, glass‑themed VC copilot."
 )
 
 @st.cache_resource
@@ -34,11 +34,54 @@ def load_engine():
         engine = NextGenVCEngine(st.secrets["TAVILY_API_KEY"], st.secrets["ALPHA_VANTAGE_KEY"], st.secrets["GEMINI_API_KEY"]); return engine
     except Exception as e: st.error(f"🔴 CRITICAL ERROR: Could not initialize engine. Check API keys and model files. Details: {e}"); st.stop()
 
+# Charts tuned for light glass
 def create_gauge_chart(score, title):
-    fig = go.Figure(go.Indicator(mode = "gauge+number", value = score, title = {'text': title, 'font': {'family': 'Space Mono', 'size': 16}}, gauge = {'axis': {'range': [None, 10]}, 'bar': {'color': "#6C9FF7"}, 'bgcolor': "#111520", 'borderwidth': 1, 'bordercolor': "rgba(255,255,255,0.06)", 'steps':[{'range': [0, 3.3], 'color': 'rgba(255,107,107,0.25)'},{'range': [3.3, 6.6], 'color': 'rgba(255,200,87,0.25)'},{'range': [6.6, 10], 'color': 'rgba(80,200,120,0.25)'}] })); fig.update_layout(paper_bgcolor="#0E1117", font=dict(color="#E8EAED")); return fig
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=score,
+        title={'text': title, 'font': {'family': 'ui-monospace, SFMono-Regular', 'size': 16, 'color': '#0F172A'}},
+        number={'font': {'color': '#0F172A'}},
+        gauge={
+            'axis': {'range': [None, 10], 'tickcolor': '#94A3B8'},
+            'bar': {'color': "#0A84FF"},
+            'bgcolor': "rgba(255,255,255,0)",
+            'borderwidth': 0,
+            'steps': [
+                {'range': [0, 3.3], 'color': 'rgba(255,59,48,0.10)'},
+                {'range': [3.3, 6.6], 'color': 'rgba(255,204,0,0.10)'},
+                {'range': [6.6, 10], 'color': 'rgba(52,199,89,0.10)'}
+            ]
+        }
+    ))
+    fig.update_layout(
+        template="simple_white",
+        paper_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=10, r=10, t=40, b=10),
+        font=dict(color="#0F172A")
+    )
+    return fig
 
 def create_spider_chart(data, title):
-    fig = go.Figure(go.Scatterpolar(r=list(data.values()), theta=list(data.keys()), fill='toself', line=dict(color='#6C9FF7'), fillcolor='rgba(108,159,247,0.20)')); fig.update_layout(title=dict(text=title, font=dict(family='Playfair Display', size=20)), polar=dict(bgcolor='#111520', radialaxis=dict(visible=True, range=[0, 10], gridcolor='rgba(255,255,255,0.08)', linecolor='rgba(255,255,255,0.12)')), paper_bgcolor='#0E1117', font=dict(color='#E8EAED')); return fig
+    fig = go.Figure(go.Scatterpolar(
+        r=list(data.values()),
+        theta=list(data.keys()),
+        fill='toself',
+        line=dict(color='#0A84FF', width=2),
+        fillcolor='rgba(10,132,255,0.15)'
+    ))
+    fig.update_layout(
+        template="simple_white",
+        title=dict(text=title, font=dict(family='-apple-system, SF Pro Display, Inter', size=20, color='#0F172A')),
+        polar=dict(
+            bgcolor='rgba(255,255,255,0)',
+            radialaxis=dict(visible=True, range=[0, 10], gridcolor='#E2E8F0', linecolor='#CBD5E1', tickfont=dict(color='#475569')),
+            angularaxis=dict(gridcolor='#E2E8F0', linecolor='#CBD5E1', tickfont=dict(color='#475569'))
+        ),
+        paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='#0F172A'),
+        margin=dict(l=10, r=10, t=40, b=10)
+    )
+    return fig
 
 def display_deep_dive_intel(data: Dict[str, Any]):
     section_heading("🌐 Market Deep-Dive")
@@ -179,7 +222,7 @@ def render_analysis_area(report):
         with card():
             with c2:
                 st.subheader("Financial Runway Simulation"); st.info(sim_res.get('narrative_summary', 'Simulation not available.'))
-                if not sim_res.get('time_series_data', pd.DataFrame()).empty: st.line_chart(sim_res['time_series_data'].set_index('Month'), color=["#6C9FF7", "#B5BDC9"])
+                if not sim_res.get('time_series_data', pd.DataFrame()).empty: st.line_chart(sim_res['time_series_data'].set_index('Month'))
 
     with tab3:
         with card(): display_deep_dive_intel(report.get('market_deep_dive', {}))
@@ -260,10 +303,10 @@ def render_analysis_area(report):
             st.caption(f"Model source: {online.get('meta', {}).get('source', 'unknown')}; AUC: {online.get('meta', {}).get('auc', 'n/a')}")
             imps = online.get("feature_importances", [])
             if imps:
-                df_imp = pd.DataFrame(imps).sort_values("importance", ascending=True).tail(20)
                 import plotly.express as px
-                fig = px.bar(df_imp, x="importance", y="feature", orientation="h", template="plotly_dark", color_discrete_sequence=["#6C9FF7"])
-                fig.update_layout(paper_bgcolor="#0E1117", plot_bgcolor="#0E1117", font=dict(color="#E8EAED"), xaxis_title="Importance", yaxis_title="")
+                df_imp = pd.DataFrame(imps).sort_values("importance", ascending=True).tail(20)
+                fig = px.bar(df_imp, x="importance", y="feature", orientation="h", template="simple_white", color_discrete_sequence=["#0A84FF"])
+                fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#0F172A"), xaxis_title="Importance", yaxis_title="", margin=dict(l=10,r=10,t=10,b=10))
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("No feature importance data available from the online model.")
