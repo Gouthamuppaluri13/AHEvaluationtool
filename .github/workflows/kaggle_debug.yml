@@ -1,0 +1,30 @@
+name: Kaggle auth debug
+
+on:
+  workflow_dispatch:
+
+jobs:
+  kaggle-debug:
+    runs-on: ubuntu-latest
+    env:
+      KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+      KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install kaggle
+        run: |
+          python -m pip install --upgrade pip
+          pip install kaggle
+      - name: Configure kaggle
+        run: |
+          mkdir -p ~/.kaggle
+          echo "{\"username\":\"${KAGGLE_USERNAME}\",\"key\":\"${KAGGLE_KEY}\"}" > ~/.kaggle/kaggle.json
+          chmod 600 ~/.kaggle/kaggle.json
+      - name: Show kaggle version and a small query
+        run: |
+          kaggle -v
+          kaggle datasets list -s "startup-success" -p 1 || true
+          kaggle datasets metadata justinas/startup-success-prediction || true
