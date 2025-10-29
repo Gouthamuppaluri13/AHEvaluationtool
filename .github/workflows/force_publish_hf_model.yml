@@ -1,19 +1,18 @@
-name: Build and commit India funding context
+name: Force publish model to Hugging Face
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 4 * * 1" # Mondays 04:00 UTC (optional)
 
 permissions:
   contents: write
 
 jobs:
-  build-and-commit:
+  publish-model:
     runs-on: ubuntu-latest
     env:
-      KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
-      KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+      HUGGINGFACE_MODEL_ID: Saigouthamuppaluri/StartupEvaluator
+      MODEL_ARTIFACT_NAME: startup_model.joblib
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
     steps:
       - name: Checkout
@@ -24,72 +23,90 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install kaggle
+          pip install scikit-learn pandas numpy joblib huggingface_hub
 
-      - name: Configure Kaggle and sanity check
+      - name: Build synthetic model bundle (guaranteed)
         run: |
-          mkdir -p ~/.kaggle
-          echo "{\"username\":\"${KAGGLE_USERNAME}\",\"key\":\"${KAGGLE_KEY}\"}" > ~/.kaggle/kaggle.json
-          chmod 600 ~/.kaggle/kaggle.json
-          kaggle -v || true
-          kaggle datasets list -s "startup-funding-india" -p 1 || true
+          python - <<'PY'
+          import os
+          import numpy as np
+          import pandas as pd
+          from sklearn.model_selection import train_test_split
+          from sklearn.preprocessing import StandardScaler
+          from sklearn.pipeline import Pipeline
+          from sklearn.linear_model import LogisticRegression
+          import joblib
 
-      - name: Try to build India funding index JSON (non-fatal)
-        id: build_ctx
-        continue-on-error: true
-        run: |
-          # Your repo has the script at training/build_india_funding_context.py
-          python training/build_india_funding_context.py --dataset-ref sandeepnandi48/startup-funding-india-cleaned
-          if [ -f data/india_funding_index.json ]; then
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-          fi
+          n = 400
+          rng = np.random.default_rng(42)
+          X = pd.DataFrame({
+            "age": rng.integers(1, 10, n),
+            "arr": rng.uniform(5e5, 1.5e8, n),
+            "burn": rng.uniform(2e5, 2.5e7, n),
+            "cash": rng.uniform(5e5, 8e8, n),
+            "ltv_cac_ratio": rng.uniform(0.5, 7.0, n),
+            "investor_quality_score": rng.uniform(3.0, 9.8, n),
+          })
+          y = ((X["arr"]/1e7) + (X["cash"]/(X["burn"]+1e-6)) + (X["ltv_cac_ratio"]/3.0) + ((X["investor_quality_score"]-5)/2.5) > 3.2).astype(int)
 
-      - name: Fallback: write placeholder India funding index JSON
-        if: steps.build_ctx.outcome != 'success'
-        run: |
-          mkdir -p data
-          cat > data/india_funding_index.json << 'JSON'
-          {
-            "sectors": {
-              "FinTech": {
-                "rounds_total": 0,
-                "median_amount_inr": null,
-                "yearly_rounds": [],
-                "round_mix": [],
-                "top_investors": []
-              },
-              "E-commerce & D2C": {
-                "rounds_total": 0,
-                "median_amount_inr": null,
-                "yearly_rounds": [],
-                "round_mix": [],
-                "top_investors": []
-              },
-              "Digital Health": {
-                "rounds_total": 0,
-                "median_amount_inr": null,
-                "yearly_rounds": [],
-                "round_mix": [],
-                "top_investors": []
-              },
-              "Clean Energy": {
-                "rounds_total": 0,
-                "median_amount_inr": null,
-                "yearly_rounds": [],
-                "round_mix": [],
-                "top_investors": []
-              }
-            }
+          Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+          pipe = Pipeline([("scaler", StandardScaler()), ("model", LogisticRegression(max_iter=600))])
+          pipe.fit(Xtr, ytr)
+
+          os.makedirs("models", exist_ok=True)
+          bundle = {
+            "clf": pipe,
+            "reg": None,
+            "feature_list": list(X.columns),
+            "categoricals": [],
+            "meta": {"source": "synthetic", "auc": None}
           }
-          JSON
-          ls -lh data/india_funding_index.json
+          joblib.dump(bundle, "models/startup_model.joblib")
+          print("Wrote models/startup_model.joblib")
+          PY
+          ls -lh models/startup_model.joblib
 
-      - name: Commit and push data/india_funding_index.json
-        uses: stefanzweifel/git-auto-commit-action@v5
+      - name: Verify Hugging Face token
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+          token = os.environ["HF_TOKEN"]
+          who = HfApi().whoami(token=token)
+          print("HF whoami:", who)
+          PY
+
+      - name: Publish to Hugging Face (create repo if needed)
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HUGGINGFACE_MODEL_ID: ${{ env.HUGGINGFACE_MODEL_ID }}
+          MODEL_ARTIFACT_NAME: ${{ env.MODEL_ARTIFACT_NAME }}
+        run: |
+          python - <<'PY'
+          import os
+          from huggingface_hub import create_repo, upload_file
+          repo_id = os.environ["HUGGINGFACE_MODEL_ID"]
+          token = os.environ["HF_TOKEN"]
+          path = "models/startup_model.joblib"
+          create_repo(repo_id=repo_id, token=token, repo_type="model", exist_ok=True, private=False)
+          upload_file(
+              path_or_fileobj=path,
+              path_in_repo=os.environ.get("MODEL_ARTIFACT_NAME","startup_model.joblib"),
+              repo_id=repo_id,
+              repo_type="model",
+              token=token
+          )
+          print("Uploaded to HF:", repo_id)
+          PY
+          echo "MODEL_ASSET_URL=https://huggingface.co/${HUGGINGFACE_MODEL_ID}/resolve/main/${MODEL_ARTIFACT_NAME}" >> "$GITHUB_ENV"
+
+      - name: Upload artifact (backup)
+        uses: actions/upload-artifact@v4
         with:
-          commit_message: "chore(data): update India funding index (Kaggle or placeholder)"
-          file_pattern: data/india_funding_index.json
+          name: startup_model_joblib
+          path: models/startup_model.joblib
