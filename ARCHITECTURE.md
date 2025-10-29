@@ -205,10 +205,12 @@ Tab 6: Inputs (raw input JSON)
 ## India Funding Context Pipeline (Offline)
 
 ```
-┌──────────────────────────────────────┐
-│  Kaggle Dataset                      │
-│  (startup-funding-india-cleaned)     │
-└────────────┬─────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│  Kaggle Dataset                                  │
+│  (sandeepnandi48/startup-funding-india-cleaned)  │
+│  See: models/training/build_india_funding_       │
+│  context.py for dataset reference                │
+└────────────┬─────────────────────────────────────┘
              │
              ▼
       ┌──────────────┐

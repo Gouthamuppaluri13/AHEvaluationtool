@@ -18,11 +18,11 @@ The application now includes **6 tabs** (previously 4):
 
 #### India Funding Trends (News-Derived)
 - **3-column metrics display:**
-  - Median Round Size (₹X Cr)
-  - Total Rounds (from news)
-  - Top Investors Found (count)
+  - Median Round Size (e.g., ₹25.5 Cr)
+  - Total Rounds (e.g., 42 from news)
+  - Top Investors Found (e.g., 15 unique investors)
 - **Round Distribution by Stage:**
-  - List showing: Series A: X, Seed: Y, etc.
+  - List showing: Series A: 12, Seed: 18, etc.
 - **Top Investors:**
   - Comma-separated list of top 5 investors
 
