@@ -12,30 +12,24 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
     st.markdown(
         """
         <style>
-          /* Apple-like font stacks (San Francisco) with safe fallbacks */
           :root{
             --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
                          "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Space Mono", monospace;
+            --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
-            /* Light, airy palette */
-            --bg: #F6F8FB;                 /* page background */
-            --ink: #0F172A;                /* primary text (slate-900) */
-            --ink-dim: #475569;            /* secondary text (slate-600) */
-            --line: rgba(15, 23, 42, 0.08);/* hairlines */
+            --bg: #F6F8FB;
+            --ink: #0F172A;
+            --ink-dim: #475569;
+            --line: rgba(15, 23, 42, 0.08);
 
-            --glass: rgba(255, 255, 255, 0.55);      /* card fill */
-            --glass-strong: rgba(255, 255, 255, 0.7);
-            --glass-field: rgba(255, 255, 255, 0.82);
-            --glass-menu: rgba(255, 255, 255, 0.96);
+            --glass: rgba(255, 255, 255, 0.55);
+            --glass-strong: rgba(255, 255, 255, 0.70);
+            --glass-field: rgba(255, 255, 255, 0.86);
+            --glass-menu: rgba(255, 255, 255, 0.98);
             --glass-border: rgba(255, 255, 255, 0.95);
-            --scrim: rgba(15, 23, 42, 0.06);         /* very soft shadow tint */
 
-            --accent: #0A84FF;             /* Apple blue */
-            --accent-2: #64D2FF;           /* secondary accent */
-            --ok: #34C759;                 /* green */
-            --warn: #FFCC00;               /* yellow */
-            --bad: #FF3B30;                /* red */
+            --accent: #0A84FF;
+            --ok: #34C759; --warn: #FFCC00; --bad: #FF3B30;
 
             --radius: 16px;
             --radius-lg: 18px;
@@ -46,7 +40,7 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
             --focus: 0 0 0 3px rgba(10,132,255,0.25);
           }
 
-          /* Page background with soft spotlight gradients */
+          /* Soft spotlight background */
           [data-testid="stAppViewContainer"] {
             background:
               radial-gradient(900px 500px at 10% -10%, rgba(10,132,255,0.10), transparent 60%),
@@ -54,7 +48,6 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
               var(--bg);
           }
 
-          /* Global typography */
           html, body, [data-testid="stAppViewContainer"] * {
             -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
           }
@@ -64,26 +57,14 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
             font-size: 16px;
             line-height: 1.55;
           }
-          h1, h2, h3 {
-            font-family: var(--font-sans);
-            font-weight: 700;
-            letter-spacing: .1px;
-            margin: 0 0 10px 0;
-            color: var(--ink);
-          }
-          h1 { font-size: 40px; }
-          h2 { font-size: 28px; }
-          h3 { font-size: 20px; }
+          h1, h2, h3 { font-weight: 700; letter-spacing: .1px; color: var(--ink); margin: 0 0 10px 0; }
+          h1 { font-size: 40px; } h2 { font-size: 28px; } h3 { font-size: 20px; }
+          code, .mono, [data-testid="stMetricValue"] { font-family: var(--font-mono) !important; }
 
-          code, kbd, samp, .mono, [data-testid="stMetricValue"] {
-            font-family: var(--font-mono) !important;
-            letter-spacing: 0;
-          }
-
-          /* Content container spacing */
+          /* Content spacing */
           .main .block-container { padding: 28px 42px 60px 42px; }
 
-          /* Glass card primitive */
+          /* Glass card */
           .card {
             background: var(--glass);
             border: 1px solid var(--glass-border);
@@ -92,10 +73,11 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
             border-radius: var(--radius-lg);
             box-shadow: var(--shadow);
             padding: 22px 22px;
+            overflow: hidden; /* prevents dark corners */
           }
           .card + .card { margin-top: 18px; }
 
-          /* Hero (large glass with gradient ink) */
+          /* Hero */
           .app-hero {
             border-radius: 22px;
             background: var(--glass-strong);
@@ -107,27 +89,22 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
             margin: 4px 0 22px 0;
           }
           .app-hero__title {
-            font-size: 44px;
-            font-weight: 750;
-            margin: 0 0 6px 0;
+            font-size: 44px; font-weight: 750; margin: 0 0 6px 0;
             background: linear-gradient(90deg, var(--ink) 0%, #1F2937 60%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
           }
           .app-hero__subtitle { color: var(--ink-dim); font-size: 18px; margin: 0; }
 
           /* Tabs → glass pills */
           [data-baseweb="tab-list"] { gap: 8px; }
           [data-baseweb="tab"] {
-            background: rgba(255,255,255,0.65);
+            background: rgba(255,255,255,0.72);
             border: 1px solid var(--glass-border);
-            -webkit-backdrop-filter: var(--blur);
-            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
             color: var(--ink-dim);
-            border-radius: 999px;
-            padding: 10px 16px;
-            transition: transform .15s ease, box-shadow .15s ease, color .15s ease;
+            border-radius: 999px; padding: 10px 16px;
             box-shadow: var(--shadow-soft);
+            transition: transform .15s ease, box-shadow .15s ease, color .15s ease;
           }
           [data-baseweb="tab"][aria-selected="true"] {
             color: var(--ink);
@@ -135,17 +112,13 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
             box-shadow: 0 8px 20px rgba(10,132,255,0.12);
           }
 
-          /* Buttons → subtle glass with accent hover */
+          /* Buttons */
           .stButton > button {
-            background: rgba(255,255,255,0.72);
+            background: rgba(255,255,255,0.78);
             border: 1px solid var(--glass-border);
-            -webkit-backdrop-filter: var(--blur);
-            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
             color: var(--ink);
-            border-radius: 14px;
-            padding: 10px 16px;
-            font-weight: 700;
-            letter-spacing: .1px;
+            border-radius: 14px; padding: 10px 16px; font-weight: 700;
             box-shadow: var(--shadow-soft);
             transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
           }
@@ -156,93 +129,69 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
           }
           .stButton > button:focus { outline: none !important; box-shadow: var(--focus) !important; }
 
-          /* Inputs → frosted fields (text/number/textarea) */
-          .stTextInput input,
-          .stNumberInput input,
-          .stTextArea textarea {
+          /* Inputs (text/number/textarea) */
+          .stTextInput input, .stNumberInput input, .stTextArea textarea {
             background: var(--glass-field) !important;
             border: 1px solid var(--glass-border) !important;
-            -webkit-backdrop-filter: var(--blur);
-            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
             border-radius: 12px !important;
             color: var(--ink) !important;
             caret-color: var(--accent) !important;
           }
-          .stTextInput input::placeholder,
-          .stNumberInput input::placeholder,
-          .stTextArea textarea::placeholder { color: #94A3B8 !important; }
-
-          .stTextInput input:focus,
-          .stNumberInput input:focus,
-          .stTextArea textarea:focus {
-            outline: none !important;
-            border-color: rgba(10,132,255,0.75) !important;
-            box-shadow: var(--focus) !important;
+          .stTextInput input::placeholder, .stNumberInput input::placeholder, .stTextArea textarea::placeholder { color: #94A3B8 !important; }
+          .stTextInput input:focus, .stNumberInput input:focus, .stTextArea textarea:focus {
+            outline: none !important; border-color: rgba(10,132,255,0.75) !important; box-shadow: var(--focus) !important;
           }
 
-          /* Selectbox (closed state field) */
-          .stSelectbox label { color: var(--ink-dim) !important; }
-          .stSelectbox div[role="combobox"],
-          .stSelectbox div[data-baseweb="select"] {
+          /* Selectbox — fix dark dropdowns and corner bleed */
+          /* 1) Reset container layers to avoid dark padding around corners */
+          .stSelectbox > div { background: transparent !important; border: none !important; padding: 0 !important; border-radius: 12px !important; overflow: hidden !important; }
+
+          /* 2) Visible closed control */
+          .stSelectbox div[data-baseweb="select"] > div:first-child,
+          .stSelectbox div[role="combobox"] {
             background: var(--glass-field) !important;
             border: 1px solid var(--glass-border) !important;
-            -webkit-backdrop-filter: var(--blur);
-            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
             color: var(--ink) !important;
             border-radius: 12px !important;
           }
-          .stSelectbox div[role="combobox"]:focus-within,
-          .stSelectbox div[data-baseweb="select"]:focus-within {
-            outline: none !important;
-            border-color: rgba(10,132,255,0.75) !important;
-            box-shadow: var(--focus) !important;
+          .stSelectbox div[data-baseweb="select"]:focus-within > div:first-child,
+          .stSelectbox div[role="combobox"]:focus-within {
+            outline: none !important; border-color: rgba(10,132,255,0.75) !important; box-shadow: var(--focus) !important;
           }
 
-          /* Select chevron/icon color */
+          /* 3) Text and chevron color inside the control */
+          .stSelectbox * { color: var(--ink) !important; }
           .stSelectbox svg, .stSelectbox svg path { stroke: var(--ink) !important; fill: var(--ink) !important; }
 
-          /* Selectbox menu (open dropdown) */
+          /* 4) Open menu surface */
           .stSelectbox [data-baseweb="popover"] [data-baseweb="menu"] {
             background: var(--glass-menu) !important;
             border: 1px solid var(--glass-border) !important;
-            -webkit-backdrop-filter: var(--blur);
-            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
             border-radius: 14px !important;
             box-shadow: var(--shadow);
             color: var(--ink) !important;
+            overflow: hidden !important;
           }
-          .stSelectbox [role="option"] {
-            color: var(--ink) !important;
-          }
-          .stSelectbox [role="option"]:hover {
+          .stSelectbox [data-baseweb="menu"] [role="option"] { color: var(--ink) !important; }
+          .stSelectbox [data-baseweb="menu"] [role="option"]:hover {
             background: rgba(10,132,255,0.08) !important;
           }
-          .stSelectbox [role="option"][aria-selected="true"] {
-            background: rgba(10,132,255,0.13) !important;
-            color: var(--ink) !important;
+          .stSelectbox [data-baseweb="menu"] [role="option"][aria-selected="true"] {
+            background: rgba(10,132,255,0.14) !important; color: var(--ink) !important;
           }
 
-          /* Radios & Checkboxes */
-          .stRadio > label, .stCheckbox > label { color: var(--ink) !important; }
-          .stRadio [role="radio"], .stCheckbox [data-baseweb="checkbox"] {
-            accent-color: var(--accent) !important;
-          }
+          /* Slider thumb/track */
+          .stSlider > div [role="slider"] { background: var(--accent) !important; box-shadow: 0 0 0 3px rgba(10,132,255,0.15) !important; }
+          .stSlider > div [data-baseweb="slider"]>div { background: linear-gradient(90deg, rgba(10,132,255,0.25), rgba(100,210,255,0.25)) !important; }
 
-          /* Sliders */
-          .stSlider > div [role="slider"] {
-            background: var(--accent) !important;
-            box-shadow: 0 0 0 3px rgba(10,132,255,0.15) !important;
-          }
-          .stSlider > div [data-baseweb="slider"]>div {
-            background: linear-gradient(90deg, rgba(10,132,255,0.25), rgba(100,210,255,0.25)) !important;
-          }
-
-          /* Metrics → small glass tiles */
+          /* Metrics */
           [data-testid="stMetric"] {
             background: rgba(255,255,255,0.6);
             border: 1px solid var(--glass-border);
-            -webkit-backdrop-filter: var(--blur);
-            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
             border-radius: 14px;
             padding: 16px 18px;
             box-shadow: var(--shadow-soft);
@@ -250,44 +199,25 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
           [data-testid="stMetricLabel"] { color: var(--ink-dim); font-size: 13px; }
           [data-testid="stMetricValue"] { font-size: 28px; color: var(--ink); }
 
-          /* Expanders */
-          details[data-testid="stExpander"] {
+          /* Expanders, tables, uploader */
+          details[data-testid="stExpander"],
+          .stDataFrame, .stTable,
+          [data-testid="stFileUploader"] section {
             background: rgba(255,255,255,0.6);
             border: 1px solid var(--glass-border);
-            -webkit-backdrop-filter: var(--blur);
-            backdrop-filter: var(--blur);
-            border-radius: var(--radius);
-            padding: 6px 10px;
-          }
-
-          /* Tables / DataFrames */
-          .stDataFrame, .stTable {
-            background: rgba(255,255,255,0.6);
-            border: 1px solid var(--glass-border);
-            -webkit-backdrop-filter: var(--blur);
-            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
             border-radius: var(--radius);
             overflow: hidden;
             box-shadow: var(--shadow-soft);
           }
 
-          /* File uploader */
-          [data-testid="stFileUploader"] section {
-            background: var(--glass-field);
-            border: 1px solid var(--glass-border);
-            border-radius: 14px;
-          }
-
-          /* Recommendation card variants */
+          /* Recommendation card */
           .recommendation-card {
             background: rgba(255,255,255,0.6);
             border: 1px solid var(--glass-border);
-            -webkit-backdrop-filter: var(--blur);
-            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
             border-radius: var(--radius);
-            padding: 22px;
-            text-align: center;
-            box-shadow: var(--shadow-soft);
+            padding: 22px; text-align: center; box-shadow: var(--shadow-soft);
           }
           .recommendation-card h2 { font-size: 28px; margin: 0 0 8px 0; }
           .recommendation-card p { color: var(--ink-dim); margin: 0; font-family: var(--font-mono) !important; }
@@ -295,7 +225,7 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
           .medium-conviction { border-left: 6px solid var(--warn); }
           .low-conviction { border-left: 6px solid var(--bad); }
 
-          /* Section separators */
+          /* Section rule */
           .section { padding: 10px 0 4px 0; border-top: 1px solid var(--line); margin-top: 18px; }
         </style>
         """,
