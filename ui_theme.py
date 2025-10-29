@@ -12,110 +12,206 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
     st.markdown(
         """
         <style>
-          @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Space+Mono:wght@400;700&display=swap');
-
+          /* Apple-like font stacks (San Francisco) with safe fallbacks */
           :root{
-            --bg:#0E1117; --panel:#111520; --muted:#1A2030; --text:#E8EAED; --text-dim:#B5BDC9;
-            --brand:#6C9FF7; --brand-2:#9A7DFF; --ok:#50C878; --warn:#FFC857; --bad:#FF6B6B;
-            --radius:16px; --shadow:0 10px 30px rgba(0,0,0,.35); --shadow-soft:0 6px 18px rgba(0,0,0,.28);
+            --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+                         "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Space Mono", monospace;
+
+            /* Light, airy palette */
+            --bg: #F6F8FB;                 /* page background */
+            --ink: #0F172A;                /* primary text (slate-900) */
+            --ink-dim: #475569;            /* secondary text (slate-600) */
+            --line: rgba(15, 23, 42, 0.08);/* hairlines */
+
+            --glass: rgba(255, 255, 255, 0.55);      /* card fill */
+            --glass-strong: rgba(255, 255, 255, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.9);
+            --scrim: rgba(15, 23, 42, 0.06);         /* very soft shadow tint */
+
+            --accent: #0A84FF;             /* Apple blue */
+            --accent-2: #64D2FF;           /* secondary accent */
+            --ok: #34C759;                 /* green */
+            --warn: #FFCC00;               /* yellow */
+            --bad: #FF3B30;                /* red */
+
+            --radius: 18px;
+            --shadow: 0 18px 40px rgba(15,23,42,0.08);
+            --shadow-soft: 0 10px 26px rgba(15,23,42,0.07);
+            --blur: saturate(180%) blur(16px);
           }
 
+          /* Page background with soft spotlight gradients */
           [data-testid="stAppViewContainer"] {
-            background: radial-gradient(1200px 600px at 20% -10%, rgba(108,159,247,0.07), transparent 60%),
-                        radial-gradient(1200px 600px at 120% 20%, rgba(154,125,255,0.06), transparent 60%),
-                        var(--bg);
+            background:
+              radial-gradient(900px 500px at 10% -10%, rgba(10,132,255,0.10), transparent 60%),
+              radial-gradient(800px 400px at 120% 0%, rgba(100,210,255,0.10), transparent 65%),
+              var(--bg);
           }
 
+          /* Global typography */
           html, body, [data-testid="stAppViewContainer"] * {
             -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
           }
-          body, p, li, label, span, div { color: var(--text); font-size: 16.5px; line-height: 1.6; }
-
-          h1, h2, h3, .app-hero__title {
-            font-family: "Playfair Display", serif !important; letter-spacing: .2px;
+          body, p, li, label, span, div {
+            color: var(--ink);
+            font-family: var(--font-sans);
+            font-size: 16px;
+            line-height: 1.55;
           }
-          h1 { font-size: 42px; font-weight: 700; margin: 0 0 14px 0; }
-          h2 { font-size: 30px; font-weight: 700; margin: 0 0 12px 0; }
-          h3 { font-size: 22px; font-weight: 700; margin: 0 0 10px 0; }
+          h1, h2, h3 {
+            font-family: var(--font-sans);
+            font-weight: 700;
+            letter-spacing: .1px;
+            margin: 0 0 10px 0;
+            color: var(--ink);
+          }
+          h1 { font-size: 40px; }
+          h2 { font-size: 28px; }
+          h3 { font-size: 20px; }
 
           code, kbd, samp, .mono, [data-testid="stMetricValue"] {
-            font-family: "Space Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+            font-family: var(--font-mono) !important;
+            letter-spacing: 0;
           }
 
-          .main .block-container { padding: 24px 42px 56px 42px; }
+          /* Content container spacing */
+          .main .block-container { padding: 28px 42px 60px 42px; }
 
-          [data-testid="stSidebar"] {
-            background: linear-gradient(180deg, rgba(17,21,32,0.95) 0%, rgba(17,21,32,0.85) 100%), var(--panel);
-            border-right: 1px solid rgba(255,255,255,0.06);
-          }
-
+          /* Glass card primitive */
           .card {
-            background: var(--panel); border-radius: var(--radius); box-shadow: var(--shadow-soft);
-            border: 1px solid rgba(255,255,255,0.06); padding: 22px 22px;
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            -webkit-backdrop-filter: var(--blur);
+            backdrop-filter: var(--blur);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 22px 22px;
           }
           .card + .card { margin-top: 18px; }
 
+          /* Hero (large glass with gradient ink) */
           .app-hero {
-            border-radius: calc(var(--radius) + 2px); padding: 28px 28px;
-            background: linear-gradient(120deg, rgba(108,159,247,0.20), rgba(154,125,255,0.18)) border-box, var(--panel);
-            border: 1px solid rgba(255,255,255,0.10); box-shadow: var(--shadow); margin-bottom: 22px;
+            border-radius: calc(var(--radius) + 4px);
+            background: var(--glass-strong);
+            border: 1px solid var(--glass-border);
+            -webkit-backdrop-filter: var(--blur);
+            backdrop-filter: var(--blur);
+            box-shadow: var(--shadow);
+            padding: 28px 28px;
+            margin: 4px 0 22px 0;
           }
           .app-hero__title {
-            font-size: 44px; margin: 0 0 8px 0;
-            background: linear-gradient(90deg, var(--brand), var(--brand-2));
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            font-size: 44px;
+            font-weight: 750;
+            margin: 0 0 6px 0;
+            background: linear-gradient(90deg, var(--ink) 0%, #1F2937 60%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
           }
-          .app-hero__subtitle { color: var(--text-dim); font-size: 18px; margin: 0; }
+          .app-hero__subtitle { color: var(--ink-dim); font-size: 18px; margin: 0; }
 
-          [data-baseweb="tab-list"] { gap: 6px; }
+          /* Tabs → glass pills */
+          [data-baseweb="tab-list"] { gap: 8px; }
           [data-baseweb="tab"] {
-            background: var(--panel); border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 1000px; padding: 10px 16px; color: var(--text-dim); transition: all .2s ease;
+            background: rgba(255,255,255,0.55);
+            border: 1px solid rgba(255,255,255,0.9);
+            -webkit-backdrop-filter: var(--blur);
+            backdrop-filter: var(--blur);
+            color: var(--ink-dim);
+            border-radius: 999px;
+            padding: 10px 16px;
+            transition: transform .15s ease, box-shadow .15s ease, color .15s ease;
+            box-shadow: var(--shadow-soft);
           }
           [data-baseweb="tab"][aria-selected="true"] {
-            color: var(--text); border-color: rgba(255,255,255,0.16); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+            color: var(--ink);
+            border-color: rgba(255,255,255,1);
+            box-shadow: 0 8px 20px rgba(10,132,255,0.12);
           }
 
-          [data-testid="stMetric"] {
-            background: var(--panel); border: 1px solid rgba(255,255,255,0.06);
-            border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow-soft);
-          }
-          [data-testid="stMetricLabel"] { color: var(--text-dim); font-size: 13px; }
-          [data-testid="stMetricValue"] { font-size: 28px; }
-
+          /* Buttons → subtle glass with accent hover */
           .stButton > button {
-            background: linear-gradient(90deg, var(--brand), var(--brand-2)); color: #0B0E14; border: 0; border-radius: 12px;
-            padding: 10px 16px; font-weight: 700; letter-spacing: .2px; box-shadow: 0 6px 16px rgba(108,159,247,0.25);
+            background: rgba(255,255,255,0.65);
+            border: 1px solid rgba(255,255,255,0.95);
+            -webkit-backdrop-filter: var(--blur);
+            backdrop-filter: var(--blur);
+            color: var(--ink);
+            border-radius: 12px;
+            padding: 10px 16px;
+            font-weight: 700;
+            letter-spacing: .1px;
+            box-shadow: var(--shadow-soft);
           }
-          .stButton > button:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(108,159,247,0.35); }
+          .stButton > button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 24px rgba(10,132,255,0.22);
+            border-color: rgba(10,132,255,0.75);
+          }
 
+          /* Inputs → frosted fields */
           .stTextInput input, .stNumberInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] {
-            background: var(--muted); border-radius: 10px; border: 1px solid rgba(255,255,255,0.08); color: var(--text);
+            background: rgba(255,255,255,0.6);
+            border: 1px solid rgba(255,255,255,0.95);
+            -webkit-backdrop-filter: var(--blur);
+            backdrop-filter: var(--blur);
+            border-radius: 12px;
+            color: var(--ink);
           }
 
+          /* Metrics → small glass tiles */
+          [data-testid="stMetric"] {
+            background: rgba(255,255,255,0.6);
+            border: 1px solid rgba(255,255,255,0.95);
+            -webkit-backdrop-filter: var(--blur);
+            backdrop-filter: var(--blur);
+            border-radius: 14px;
+            padding: 16px 18px;
+            box-shadow: var(--shadow-soft);
+          }
+          [data-testid="stMetricLabel"] { color: var(--ink-dim); font-size: 13px; }
+          [data-testid="stMetricValue"] { font-size: 28px; color: var(--ink); }
+
+          /* Expanders */
           details[data-testid="stExpander"] {
-            background: var(--panel); border-radius: var(--radius); border: 1px solid rgba(255,255,255,0.08); padding: 6px 10px;
+            background: rgba(255,255,255,0.6);
+            border: 1px solid rgba(255,255,255,0.95);
+            -webkit-backdrop-filter: var(--blur);
+            backdrop-filter: var(--blur);
+            border-radius: var(--radius);
+            padding: 6px 10px;
           }
 
+          /* Tables / DataFrames */
           .stDataFrame, .stTable {
-            border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-soft);
+            background: rgba(255,255,255,0.6);
+            border: 1px solid rgba(255,255,255,0.95);
+            -webkit-backdrop-filter: var(--blur);
+            backdrop-filter: var(--blur);
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-soft);
           }
 
+          /* Recommendation card variants */
           .recommendation-card {
-            background: var(--panel); border-radius: var(--radius);
-            border: 1px solid rgba(255,255,255,0.08); padding: 22px; text-align: center; box-shadow: var(--shadow-soft);
+            background: rgba(255,255,255,0.6);
+            border: 1px solid rgba(255,255,255,0.95);
+            -webkit-backdrop-filter: var(--blur);
+            backdrop-filter: var(--blur);
+            border-radius: var(--radius);
+            padding: 22px;
+            text-align: center;
+            box-shadow: var(--shadow-soft);
           }
-          .recommendation-card h2 {
-            font-family: "Playfair Display", serif !important; font-size: 28px; margin: 0 0 8px 0;
-          }
-          .recommendation-card p {
-            color: var(--text-dim); margin: 0; font-family: "Space Mono", ui-monospace, monospace !important;
-          }
+          .recommendation-card h2 { font-size: 28px; margin: 0 0 8px 0; }
+          .recommendation-card p { color: var(--ink-dim); margin: 0; font-family: var(--font-mono) !important; }
           .high-conviction { border-left: 6px solid var(--ok); }
           .medium-conviction { border-left: 6px solid var(--warn); }
           .low-conviction { border-left: 6px solid var(--bad); }
 
-          .section { padding: 10px 0 4px 0; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 18px; }
+          /* Section separators */
+          .section { padding: 10px 0 4px 0; border-top: 1px solid var(--line); margin-top: 18px; }
         </style>
         """,
         unsafe_allow_html=True,
