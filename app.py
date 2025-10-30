@@ -5,19 +5,27 @@ import asyncio
 import plotly.graph_objects as go
 import os
 import logging
-from typing import Dict, Any, Tuple
+from typing import Dict, Any
 
-from next_gen_vc_engine import NextGenVCEngine, FocusArea, FounderPersonality
-from ui_theme import apply_theme, hero, section_heading, card  # Glass theme
-from services.pdf_ingest import PDFIngestor  # PDF auto-parse (optional)
+from next_gen_vc_engine import NextGenVCEngine, FounderPersonality
+from ui_theme import apply_theme, hero, section_heading, card
+from services.pdf_ingest import PDFIngestor
 
 # =========================
 # Global theme + setup
 # =========================
 apply_theme(page_title="Anthill AI+ Evaluation", page_icon="🦅")
 
-# Map optional secrets into env (used by dependencies)
-for k in ["HUGGINGFACE_MODEL_ID", "MODEL_ARTIFACT_NAME", "MODEL_ASSET_URL", "FX_INR_PER_USD", "RESEARCH_API_URL", "RESEARCH_MODEL"]:
+# Wizard state
+if "wizard_step" not in st.session_state:
+    st.session_state.wizard_step = 0  # 0 = Company Profile, 1 = Metrics & Financials
+if "profile_inputs" not in st.session_state:
+    st.session_state.profile_inputs = {}
+if "view" not in st.session_state:
+    st.session_state.view = "input"
+
+# Pass-through secrets (optional)
+for k in ["HUGGINGFACE_MODEL_ID", "MODEL_ARTIFACT_NAME", "MODEL_ASSET_URL", "FX_INR_PER_USD", "RESEARCH_API_URL", "RESEARCH_MODEL", "RESEARCH_RESPONSES_URL"]:
     try:
         val = st.secrets.get(k)
         if val:
@@ -26,10 +34,7 @@ for k in ["HUGGINGFACE_MODEL_ID", "MODEL_ARTIFACT_NAME", "MODEL_ASSET_URL", "FX_
         pass
 
 # Hero
-hero(
-    "Anthill AI+ Evaluation",
-    "Minimal, elegant, glass‑themed VC copilot with deep research."
-)
+hero("Anthill AI+ Evaluation", "Minimal, elegant, glass‑themed VC copilot with deep research.")
 
 @st.cache_resource
 def load_engine():
@@ -38,16 +43,16 @@ def load_engine():
             st.secrets.get("TAVILY_API_KEY"),
             st.secrets.get("ALPHA_VANTAGE_KEY"),
             None,  # no Gemini
-            # Accept either RESEARCH_API_KEY or GROK_API_KEY from secrets; the service will fallback too
             st.secrets.get("RESEARCH_API_KEY") or st.secrets.get("GROK_API_KEY"),
         )
         return engine
     except Exception as e:
-        st.error(f"🔴 CRITICAL ERROR: Could not initialize engine. Check API keys and model files. Details: {e}")
+        st.error("🔴 Could not initialize engine. Check keys.")
+        logging.exception(e)
         st.stop()
 
 # =========================
-# Chart helpers
+# Charts
 # =========================
 def create_gauge_chart(score, title):
     fig = go.Figure(go.Indicator(
@@ -55,144 +60,96 @@ def create_gauge_chart(score, title):
         value=score,
         title={'text': title, 'font': {'family': 'ui-monospace, SFMono-Regular', 'size': 16, 'color': '#0F172A'}},
         number={'font': {'color': '#0F172A'}},
-        gauge={
-            'axis': {'range': [None, 10], 'tickcolor': '#94A3B8'},
-            'bar': {'color': "#0A84FF"},
-            'bgcolor': "rgba(255,255,255,0)",
-            'borderwidth': 0,
-            'steps': [
-                {'range': [0, 3.3], 'color': 'rgba(255,59,48,0.10)'},
-                {'range': [3.3, 6.6], 'color': 'rgba(255,204,0,0.10)'},
-                {'range': [6.6, 10], 'color': 'rgba(52,199,89,0.10)'}
-            ]
-        }
+        gauge={'axis': {'range': [None, 10], 'tickcolor': '#94A3B8'},
+               'bar': {'color': "#0A84FF"},
+               'bgcolor': "rgba(255,255,255,0)",
+               'borderwidth': 0,
+               'steps': [
+                   {'range': [0, 3.3], 'color': 'rgba(255,59,48,0.10)'},
+                   {'range': [3.3, 6.6], 'color': 'rgba(255,204,0,0.10)'},
+                   {'range': [6.6, 10], 'color': 'rgba(52,199,89,0.10)'}
+               ]}
     ))
-    fig.update_layout(
-        template="simple_white",
-        paper_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=10, r=10, t=40, b=10),
-        font=dict(color="#0F172A")
-    )
+    fig.update_layout(template="simple_white", paper_bgcolor="rgba(0,0,0,0)", margin=dict(l=10, r=10, t=40, b=10), font=dict(color="#0F172A"))
     return fig
 
 def create_spider_chart(data, title):
     if not isinstance(data, dict) or not data:
         data = {"Market": 5, "Execution": 5, "Technology": 5, "Regulatory": 5, "Competition": 5}
     fig = go.Figure(go.Scatterpolar(
-        r=list(data.values()),
-        theta=list(data.keys()),
-        fill='toself',
-        line=dict(color='#0A84FF', width=2),
-        fillcolor='rgba(10,132,255,0.15)'
+        r=list(data.values()), theta=list(data.keys()), fill='toself',
+        line=dict(color='#0A84FF', width=2), fillcolor='rgba(10,132,255,0.15)'
     ))
-    fig.update_layout(
-        template="simple_white",
+    fig.update_layout(template="simple_white",
         title=dict(text=title, font=dict(family='-apple-system, SF Pro Display, Inter', size=20, color='#0F172A')),
-        polar=dict(
-            bgcolor='rgba(255,255,255,0)',
-            radialaxis=dict(visible=True, range=[0, 10], gridcolor='#E2E8F0', linecolor='#CBD5E1', tickfont=dict(color='#475569')),
-            angularaxis=dict(gridcolor='#E2E8F0', linecolor='#CBD5E1', tickfont=dict(color='#475569'))
-        ),
-        paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='#0F172A'),
-        margin=dict(l=10, r=10, t=40, b=10)
-    )
+        polar=dict(bgcolor='rgba(255,255,255,0)',
+                   radialaxis=dict(visible=True, range=[0, 10], gridcolor='#E2E8F0', linecolor='#CBD5E1', tickfont=dict(color='#475569')),
+                   angularaxis=dict(gridcolor='#E2E8F0', linecolor='#CBD5E1', tickfont=dict(color='#475569'))),
+        paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#0F172A'), margin=dict(l=10, r=10, t=40, b=10))
     return fig
 
 # =========================
-# Deep-dive display (readability-first)
+# Research display
 # =========================
-def _render_section_block(title: str, content: str):
+def _render_paragraphs(title: str, content: str):
     if not content:
         return
     with card():
         st.markdown(f"### {title}")
-        # Turn long blocks into readable paragraphs
-        parts = [p.strip() for p in re_split_paragraphs(content)]
+        parts = [p.strip() for p in content.replace("\r\n", "\n").split("\n\n") if p.strip()]
         for p in parts:
             st.markdown(p)
 
-def re_split_paragraphs(text: str):
-    # Split by double newline or sentence-ish boundaries to improve readability
-    import re
-    text = text.replace("\r\n", "\n")
-    if "\n\n" in text:
-        return text.split("\n\n")
-    # fallback: split on sentence end
-    chunks = re.split(r'(?<=[\.\!\?])\s+(?=[A-Z0-9])', text)
-    return chunks if chunks else [text]
-
-def display_deep_dive_intel(data: Dict[str, Any]):
-    section_heading("🌐 Market Deep-Dive")
-    if not isinstance(data, dict):
-        st.info("Deep-dive not available yet.")
-        return
-
-    # External research (provider-agnostic)
-    ext = data.get("external_research", {}) or {}
+def display_research(md: Dict[str, Any]):
+    ext = md.get("external_research", {}) or {}
+    diags = (md.get("_diagnostics", {}) or {}).get("research", {}) if isinstance(md, dict) else {}
     st.markdown("#### 🔎 External Research (Web Deep Dive)")
+    # Diagnostics (provider-agnostic)
+    with st.expander("Diagnostics"):
+        st.caption(f"Enabled: {diags.get('enabled', True)} | Cache hit: {diags.get('cache_hit', False)} | Last error: {diags.get('error','')}")
+        if isinstance(ext, dict) and "_diagnostics" in ext:
+            st.caption(f"Route: {ext['_diagnostics'].get('route','n/a')}")
+
     if "notice" in ext:
         st.info(ext["notice"])
-    elif "error" in ext:
+        return
+    if "error" in ext:
         st.info("External research was unavailable. Please try again.")
-    else:
-        # Summary top card
-        if ext.get("summary"):
-            _render_section_block("Research Summary", ext["summary"])
+        return
 
-        # Split sections across two columns with clear headings
-        sections = ext.get("sections", {}) or {}
-        if sections:
-            st.markdown("---")
-            colL, colR = st.columns(2)
-            left_keys = ["overview", "products", "business_model", "gtm", "unit_economics", "funding", "investors", "leadership"]
-            right_keys = ["hiring", "traction", "customers", "pricing", "competitors", "moat", "partnerships", "regulatory", "risks", "tech_stack", "roadmap"]
-            with colL:
-                for k in left_keys:
-                    if sections.get(k):
-                        _render_section_block(k.replace('_', ' ').title(), sections[k])
-            with colR:
-                for k in right_keys:
-                    if sections.get(k):
-                        _render_section_block(k.replace('_', ' ').title(), sections[k])
+    if ext.get("summary"):
+        _render_paragraphs("Research Summary", ext["summary"])
 
-        # Citations list
-        sources = ext.get("sources", []) or []
-        if sources:
-            st.markdown("---")
-            with card():
-                st.markdown("### Citations")
-                for s in sources[:20]:
-                    title = s.get("title", "Source")
-                    url = s.get("url", "#")
-                    snippet = s.get("snippet", "")
-                    conf = s.get("confidence", None)
-                    conf_str = f" (confidence {conf:.2f})" if isinstance(conf, (int, float)) else ""
-                    st.markdown(f"- [{title}]({url}) — {snippet}{conf_str}")
+    sections = ext.get("sections", {}) or {}
+    if sections:
+        st.markdown("---")
+        colL, colR = st.columns(2)
+        left = ["overview", "products", "business_model", "gtm", "unit_economics", "funding", "investors", "leadership"]
+        right = ["hiring", "traction", "customers", "pricing", "competitors", "moat", "partnerships", "regulatory", "risks", "tech_stack", "roadmap"]
+        with colL:
+            for k in left:
+                if sections.get(k):
+                    _render_paragraphs(k.replace("_", " ").title(), sections[k])
+        with colR:
+            for k in right:
+                if sections.get(k):
+                    _render_paragraphs(k.replace("_", " ").title(), sections[k])
 
-    # Optional: auxiliary enrichment if present
-    for key, title in {
-        "indian_funding_trends": "🇮🇳 Funding Trends (Web)",
-        "recent_news": "🗞️ Recent News",
-        "india_funding_dataset_context": "📊 India Funding Dataset Context (Kaggle)",
-    }.items():
-        content = data.get(key)
-        if content:
-            st.markdown("---")
-            with card():
-                st.markdown(f"### {title}")
-                if key == "recent_news":
-                    news = content.get("news", [])
-                    if news:
-                        for n in news[:10]:
-                            st.markdown(f"- [{n.get('title','(untitled)')}]({n.get('url','#')}) — {n.get('published_date','')}")
-                    else:
-                        st.info("No recent news available.")
-                else:
-                    st.json(content)
+    sources = ext.get("sources", []) or []
+    if sources:
+        st.markdown("---")
+        with card():
+            st.markdown("### Citations")
+            for i, s in enumerate(sources[:20], start=1):
+                title = s.get("title", "Source")
+                url = s.get("url", "#")
+                snippet = s.get("snippet", "")
+                conf = s.get("confidence", None)
+                conf_str = f" (confidence {conf:.2f})" if isinstance(conf, (int, float)) else ""
+                st.markdown(f"- [{i}] [{title}]({url}) — {snippet}{conf_str}")
 
 # =========================
-# PDF Quick Analysis — now on first page
+# PDF Quick Analysis — first page
 # =========================
 def render_pdf_quick_analysis():
     section_heading("📄 Quick Analysis From PDF", "Upload a deck and generate the full evaluation without manual entry")
@@ -211,12 +168,12 @@ def render_pdf_quick_analysis():
             else:
                 with st.spinner("Extracting content and building inputs from PDF..."):
                     try:
-                        ingestor = PDFIngestor(st.secrets.get("GEMINI_API_KEY"))  # works without Gemini via regex fallback
+                        ingestor = PDFIngestor(st.secrets.get("GEMINI_API_KEY"))  # regex fallback works without key
                         extracted = ingestor.extract(uploaded.getvalue(), file_name=getattr(uploaded, "name", None))
                         st.session_state["pdf_extracted_inputs"] = extracted
                         st.session_state["pdf_extracted_ticker"] = comps_ticker
                         st.success("Parsed PDF successfully. Review extracted fields below.")
-                    except Exception as e:
+                    except Exception:
                         st.error("We couldn't parse the PDF. Please try a different file.")
 
         if clear_clicked:
@@ -249,7 +206,7 @@ def render_pdf_quick_analysis():
                 st.rerun()
 
 # =========================
-# Step 1 — Company Profile
+# Profile + Metrics (wizard)
 # =========================
 FOCUS_AREA_OPTIONS = {
     "Enhance Urban Lifestyle": ['E-commerce & D2C', 'Consumer Services', 'FinTech', 'PropTech', 'Logistics & Supply Chain', 'Travel & Hospitality', 'Media & Entertainment', 'Gaming'],
@@ -257,68 +214,49 @@ FOCUS_AREA_OPTIONS = {
     "Mitigate Climate Change": ['Clean Energy', 'EV Mobility', 'AgriTech']
 }
 
-def render_company_profile_step() -> Tuple[Dict[str, Any], bool]:
+def render_company_profile_step() -> Dict[str, Any]:
     section_heading("📝 Step 1 — Company Profile", "Fill this first to unlock Metrics & Financials")
     inputs: Dict[str, Any] = {}
     with card():
         c1, c2 = st.columns(2, gap="large")
         with c1:
-            inputs['company_name'] = st.text_input("Company Name", st.session_state.get('company_name', ''))
-            inputs['focus_area'] = st.selectbox("Investment Focus Area", list(FOCUS_AREA_OPTIONS.keys()), index=0 if 'focus_area' not in st.session_state else list(FOCUS_AREA_OPTIONS.keys()).index(st.session_state.get('focus_area', list(FOCUS_AREA_OPTIONS.keys())[0])))
+            inputs['company_name'] = st.text_input("Company Name", st.session_state.profile_inputs.get('company_name', ''))
+            fa_keys = list(FOCUS_AREA_OPTIONS.keys())
+            default_fa = st.session_state.profile_inputs.get('focus_area', fa_keys[0])
+            if default_fa not in fa_keys:
+                default_fa = fa_keys[0]
+            inputs['focus_area'] = st.selectbox("Investment Focus Area", fa_keys, index=fa_keys.index(default_fa))
             sector_list = FOCUS_AREA_OPTIONS[inputs['focus_area']]
-            default_sector = st.session_state.get('sector', sector_list[0])
+            default_sector = st.session_state.profile_inputs.get('sector', sector_list[0])
             if default_sector not in sector_list:
                 default_sector = sector_list[0]
             inputs['sector'] = st.selectbox("Sector", sector_list, index=sector_list.index(default_sector))
-            inputs['location'] = st.selectbox("Location", ["India", "US", "SEA", "MENA", "EU"], index=0 if st.session_state.get('location') not in ["US","SEA","MENA","EU"] else ["India","US","SEA","MENA","EU"].index(st.session_state.get('location')))
+            inputs['location'] = st.selectbox("Location", ["India", "US", "SEA", "MENA", "EU"],
+                                              index=(["India", "US", "SEA", "MENA", "EU"].index(st.session_state.profile_inputs.get('location', 'India'))))
         with c2:
             stage_options = ["Pre-Seed", "Seed", "Series A", "Series B"]
-            default_stage = st.session_state.get('stage', "Series A")
-            inputs['stage'] = st.selectbox("Funding Stage", stage_options, index=stage_options.index(default_stage) if default_stage in stage_options else 2)
-            inputs['founder_type'] = st.selectbox("Founder Archetype", [p.value for p in FounderPersonality], index=0)
+            default_stage = st.session_state.profile_inputs.get('stage', "Series A")
+            idx = stage_options.index(default_stage) if default_stage in stage_options else 2
+            inputs['stage'] = st.selectbox("Funding Stage", stage_options, index=idx)
+            ft_values = [p.value for p in FounderPersonality]
+            default_ft = st.session_state.profile_inputs.get('founder_type', ft_values[0])
+            if default_ft not in ft_values:
+                default_ft = ft_values[0]
+            inputs['founder_type'] = st.selectbox("Founder Archetype", ft_values, index=ft_values.index(default_ft))
         st.markdown("---")
-        inputs['founder_bio'] = st.text_area(
-            "Founder Bio",
-            st.session_state.get('founder_bio', ''),
-            height=100
-        )
-        inputs['product_desc'] = st.text_area(
-            "Product Description",
-            st.session_state.get('product_desc', ''),
-            height=100
-        )
+        inputs['founder_bio'] = st.text_area("Founder Bio", st.session_state.profile_inputs.get('founder_bio', ''), height=100)
+        inputs['product_desc'] = st.text_area("Product Description", st.session_state.profile_inputs.get('product_desc', ''), height=100)
 
-    # Validation
-    missing = [k for k in ["company_name", "focus_area", "sector", "location", "stage", "founder_type"] if not inputs.get(k)]
-    if missing:
-        st.warning("Please complete all required fields above.")
-        return inputs, False
-    return inputs, True
-
-# =========================
-# Step 2 — Metrics & Financials
-# =========================
-def _common_metrics_defaults():
-    return {
-        "founded_year": 2022,
-        "total_funding_usd": 5000000,
-        "team_size": 50,
-        "num_investors": 5,
-        "product_stage_score": 8.0,
-        "team_score": 8.0,
-        "moat_score": 7.0,
-        "investor_quality_score": 7.0,
-        "ltv_cac_ratio": 3.5,
-        "gross_margin_pct": 60.0,
-        "monthly_churn_pct": 2.0,
-        "arr": 80000000,
-        "burn": 10000000,
-        "cash": 90000000,
-        "expected_monthly_growth_pct": 5.0,
-        "growth_volatility_pct": 3.0,
-        "lead_to_customer_conv_pct": 5.0,
-        "monthly_web_traffic": [5000, 6200, 8100, 11000, 13500, 16000, 19000, 22000, 25000, 28000, 31000, 35000],
-    }
+        required = ["company_name", "focus_area", "sector", "location", "stage", "founder_type", "product_desc"]
+        is_valid = all(bool(inputs.get(k)) for k in required)
+        col_next, col_hint = st.columns([1, 3])
+        if col_next.button("Next ➡️", disabled=not is_valid, use_container_width=True):
+            st.session_state.profile_inputs = inputs
+            st.session_state.wizard_step = 1
+            st.rerun()
+        if not is_valid:
+            col_hint.caption("Fill all required fields to continue to Metrics & Financials.")
+    return inputs
 
 def render_sector_specific_metrics(focus_area: str, sector: str) -> Dict[str, Any]:
     extra: Dict[str, Any] = {}
@@ -330,41 +268,26 @@ def render_sector_specific_metrics(focus_area: str, sector: str) -> Dict[str, An
                 extra["aov_inr"] = c1.number_input("Average Order Value (₹)", value=1200, min_value=0)
                 extra["monthly_orders"] = c2.number_input("Monthly Orders", value=25000, min_value=0)
                 extra["repeat_rate_pct"] = c3.number_input("Repeat Purchase Rate (%)", value=35.0, min_value=0.0, max_value=100.0)
-                c4, c5, c6 = st.columns(3)
-                extra["contribution_margin_pct"] = c4.number_input("Contribution Margin (%)", value=18.0, min_value=-100.0, max_value=100.0)
-                extra["fulfillment_cost_pct"] = c5.number_input("Fulfillment Cost / GMV (%)", value=10.0, min_value=0.0, max_value=100.0)
-                extra["returns_rate_pct"] = c6.number_input("Returns Rate (%)", value=3.0, min_value=0.0, max_value=100.0)
             elif sector == "FinTech":
                 c1, c2, c3 = st.columns(3)
                 extra["take_rate_pct"] = c1.number_input("Take Rate (%)", value=1.5, min_value=0.0, max_value=100.0, step=0.1)
                 extra["transaction_volume_gmv"] = c2.number_input("Monthly Volume (GMV, ₹)", value=1_000_000_000, min_value=0)
                 extra["delinquency_rate_pct"] = c3.number_input("Delinquency/Default Rate (%)", value=1.2, min_value=0.0, max_value=100.0, step=0.1)
-                c4, c5 = st.columns(2)
-                extra["cost_of_capital_pct"] = c4.number_input("Cost of Capital (%)", value=10.0, min_value=0.0, max_value=100.0, step=0.1)
-                extra["net_interest_margin_pct"] = c5.number_input("Net Interest Margin (%)", value=6.0, min_value=-100.0, max_value=100.0, step=0.1)
-            elif sector == "Consumer Services":
-                extra["cac_payback_months"] = st.number_input("CAC Payback (months)", value=12.0, min_value=0.0, max_value=120.0, step=0.5)
         elif focus_area == "Live Healthy":
             c1, c2, c3 = st.columns(3)
             extra["regulatory_stage"] = c1.selectbox("Regulatory/Clinical Stage", ["None", "Pre-clinical", "Phase I/II", "Phase III", "Approved"], index=0)
-            extra["patient_outcomes_improvement_pct"] = c2.number_input("Outcomes Improvement (%)", value=0.0, min_value=0.0, max_value=100.0, step=0.5)
-            extra["reimbursement_coverage_pct"] = c3.number_input("Reimbursement Coverage (%)", value=0.0, min_value=0.0, max_value=100.0, step=0.5)
-            c4, c5 = st.columns(2)
-            extra["gross_retention_pct"] = c4.number_input("Gross Revenue Retention (%)", value=90.0, min_value=0.0, max_value=120.0, step=0.5)
-            extra["enterprise_sales_cycle_days"] = c5.number_input("Enterprise Sales Cycle (days)", value=120, min_value=0, step=5)
+            extra["gross_retention_pct"] = c2.number_input("Gross Revenue Retention (%)", value=90.0, min_value=0.0, max_value=120.0, step=0.5)
+            extra["enterprise_sales_cycle_days"] = c3.number_input("Enterprise Sales Cycle (days)", value=120, min_value=0, step=5)
         elif focus_area == "Mitigate Climate Change":
             c1, c2, c3 = st.columns(3)
             extra["trl_level"] = c1.slider("Technology Readiness Level (1-9)", min_value=1, max_value=9, value=6)
             extra["capex_per_unit_inr"] = c2.number_input("CapEx per Unit (₹)", value=500000, min_value=0)
             extra["opex_per_unit_inr"] = c3.number_input("OpEx per Unit (₹/month)", value=5000, min_value=0)
-            c4, c5 = st.columns(2)
-            extra["carbon_abated_per_unit_kg"] = c4.number_input("Carbon Abatement (kg CO₂e / unit / year)", value=1500, min_value=0)
-            extra["lcoe_inr_per_kwh"] = c5.number_input("Levelized Cost of Energy (₹/kWh)", value=3.5, min_value=0.0, step=0.1)
     return extra
 
 def render_metrics_step(profile: Dict[str, Any]) -> Dict[str, Any]:
     section_heading("📊 Step 2 — Metrics & Financials", "Now add the quantitative context")
-    inputs = _common_metrics_defaults()
+    inputs: Dict[str, Any] = {}
 
     with card():
         c1, c2, c3 = st.columns(3)
@@ -402,10 +325,8 @@ def render_metrics_step(profile: Dict[str, Any]) -> Dict[str, Any]:
         inputs['growth_volatility_pct'] = c5.number_input("Growth Volatility (σ, %)", value=3.0, min_value=0.0, max_value=100.0, step=0.5)
         inputs['lead_to_customer_conv_pct'] = c6.number_input("Lead → Customer Conversion (%)", value=5.0, min_value=0.1, max_value=100.0, step=0.1)
 
-        traffic_string = st.text_input(
-            "Last 12 Months Web Traffic (comma-separated)",
-            "5000, 6200, 8100, 11000, 13500, 16000, 19000, 22000, 25000, 28000, 31000, 35000"
-        )
+        traffic_string = st.text_input("Last 12 Months Web Traffic (comma-separated)",
+                                       "5000, 6200, 8100, 11000, 13500, 16000, 19000, 22000, 25000, 28000, 31000, 35000")
         try:
             inputs['monthly_web_traffic'] = [int(x.strip()) for x in traffic_string.split(',') if x.strip()]
             if len(inputs['monthly_web_traffic']) != 12:
@@ -414,30 +335,49 @@ def render_metrics_step(profile: Dict[str, Any]) -> Dict[str, Any]:
             st.error("Invalid web traffic. Please enter only comma-separated numbers.", icon="🛑")
             st.stop()
 
-    # Sector-specific additions
     extra = render_sector_specific_metrics(profile['focus_area'], profile['sector'])
     inputs.update(extra)
 
     with card():
         col_back, col_run = st.columns([1, 2])
         if col_back.button("⬅️ Back to Company Profile"):
-            st.session_state.step = 0
+            st.session_state.wizard_step = 0
             st.rerun()
         if col_run.button("🚀 Run AI+ Analysis", use_container_width=True):
-            # Merge profile + metrics for engine
             merged = {**profile, **inputs}
             st.session_state.view = 'analysis'
             st.session_state.inputs = merged
-            st.session_state.comps_ticker = st.session_state.get("comps_ticker", "ZOMATO.BSE") or "ZOMATO.BSE"
+            st.session_state.comps_ticker = comps_ticker or "ZOMATO.BSE"
             st.rerun()
 
-    # Persist comps ticker from this step
     st.session_state.comps_ticker = comps_ticker
     return inputs
 
 # =========================
-# Summary dashboard + Analysis
+# Dashboards
 # =========================
+def memo_to_markdown(memo: Dict[str, Any]) -> str:
+    lines = []
+    lines.append(f"# Investment Memo\n")
+    if memo.get("executive_summary"):
+        lines.append("## Executive Summary")
+        lines.append(memo["executive_summary"])
+    blocks = [
+        "investment_thesis","market","product","traction","unit_economics","gtm","competition","team",
+        "risks","catalysts","round_dynamics","use_of_proceeds","valuation_rationale","kpis_next_12m","exit_paths"
+    ]
+    for k in blocks:
+        v = memo.get(k)
+        if v:
+            lines.append(f"## {k.replace('_',' ').title()}")
+            lines.append(str(v))
+    lines.append("## Bull Case")
+    lines.append(memo.get("bull_case_narrative",""))
+    lines.append("## Bear Case")
+    lines.append(memo.get("bear_case_narrative",""))
+    lines.append(f"\nRecommendation: {memo.get('recommendation','')}, Conviction: {memo.get('conviction','')}")
+    return "\n\n".join([x for x in lines if x is not None])
+
 def render_summary_dashboard(report):
     memo = report.get('investment_memo', {}) or {}
     risk = report.get('risk_matrix', {}) or {}
@@ -474,7 +414,10 @@ def render_summary_dashboard(report):
                 st.progress(ssq.get('scalability', 0) / 10.0)
 
         with col3:
-            highest_risk, highest_risk_score = max(risk.items(), key=lambda item: item[1]) if risk else ("N/A", 0)
+            if risk:
+                highest_risk, highest_risk_score = max(risk.items(), key=lambda item: item[1])
+            else:
+                highest_risk, highest_risk_score = ("N/A", 0)
             rec_score = {"High": 10, "Medium": 6, "Low": 3}.get(conviction, 0)
             deal_score = (rec_score * 0.4) + (ssq.get('ssq_score', 0) * 0.6)
             st.plotly_chart(create_gauge_chart(deal_score, "Overall Deal Score"), use_container_width=True)
@@ -492,7 +435,7 @@ def render_analysis_area(report):
     c1, c2 = st.columns([3, 1])
     c1.header(f"Diagnostic Report: {company_name}")
     if c2.button("⬅️ New Analysis"):
-        keys_to_clear = ['report', 'inputs', 'comps_ticker', 'pdf_extracted_inputs', 'pdf_extracted_ticker', 'step']
+        keys_to_clear = ['report', 'inputs', 'comps_ticker', 'pdf_extracted_inputs', 'pdf_extracted_ticker', 'wizard_step', 'profile_inputs']
         st.session_state.view = 'input'
         for key in keys_to_clear:
             if key in st.session_state:
@@ -503,10 +446,11 @@ def render_analysis_area(report):
     st.markdown("---")
     section_heading("Deep Dive Analysis")
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📝 Investment Memo",
         "📈 Risk & Financial Simulation",
         "🌐 Market Deep-Dive & Comps",
+        "🔎 Research & Sources",
         "📥 Submitted Inputs",
         "💸 Fundraise Forecast",
         "🤖 ML Predictions"
@@ -514,6 +458,7 @@ def render_analysis_area(report):
 
     memo = report.get('investment_memo', {}) or {}
     sim_res = report.get('simulation', {}) or {}
+    md = report.get('market_deep_dive', {}) or {}
 
     with tab1:
         section_heading("Executive Summary")
@@ -545,6 +490,11 @@ def render_analysis_area(report):
                 st.subheader("Bear Case")
                 st.markdown(memo.get('bear_case_narrative', 'No bear case generated.'), unsafe_allow_html=True)
 
+        # Download memo as Markdown
+        with card():
+            md_text = memo_to_markdown(memo)
+            st.download_button("⬇️ Download Memo (Markdown)", data=md_text, file_name=f"{company_name}_Investment_Memo.md", mime="text/markdown")
+
     with tab2:
         cc1, cc2 = st.columns(2, gap="large")
         with cc1:
@@ -560,24 +510,33 @@ def render_analysis_area(report):
 
     with tab3:
         with card():
-            display_deep_dive_intel(report.get('market_deep_dive', {}))
-
-        st.markdown("---")
-        with card():
-            st.subheader("Public Comparables")
-            comps = report.get('public_comps', {})
-            if "Error" in comps:
-                st.error(comps["Error"])
-            elif comps:
-                st.metric(label=f"Company: {comps.get('Company')}", value=comps.get('Price (₹)'), delta=f"Exchange: {comps.get('Market', 'N/A')}")
-            else:
-                st.info("No public comparable data available.")
+            section_heading("Market Deep-Dive (Context)")
+            trends = md.get('indian_funding_trends', {})
+            news = md.get('recent_news', {}).get('news', [])
+            india_ctx = md.get('india_funding_dataset_context', {})
+            if trends:
+                with card():
+                    st.markdown("#### 🇮🇳 Funding Trends (Web)")
+                    st.json(trends)
+            if news:
+                with card():
+                    st.markdown("#### 🗞️ Recent News")
+                    for n in news[:10]:
+                        st.markdown(f"- [{n.get('title','(untitled)')}]({n.get('url','#')}) — {n.get('published_date','')}")
+            if india_ctx:
+                with card():
+                    st.markdown("#### 📊 India Funding Dataset Context (Kaggle)")
+                    st.json(india_ctx)
 
     with tab4:
         with card():
-            st.json(st.session_state.get('inputs', {}))
+            display_research(md)
 
     with tab5:
+        with card():
+            st.json(st.session_state.get('inputs', {}))
+
+    with tab6:
         with card():
             st.subheader("Fundraise Forecast")
             forecast = report.get('fundraise_forecast', {}) or {}
@@ -585,9 +544,9 @@ def render_analysis_area(report):
             c1.metric("Round Likelihood (6 months)", f"{forecast.get('round_likelihood_6m', 0.0):.1%}")
             c2.metric("Round Likelihood (12 months)", f"{forecast.get('round_likelihood_12m', 0.0):.1%}")
             c3.metric("Expected Time to Next Round", f"{forecast.get('expected_time_to_next_round_months', 0.0):.1f} months")
-            st.caption("Probabilities calibrated when model bundle is available; otherwise robust heuristics are applied.")
+            st.caption("Probabilities calibrate to online model when available; otherwise robust heuristics are applied.")
 
-    with tab6:
+    with tab7:
         with card():
             st.subheader("Online Model Results")
             ml = report.get("ml_predictions", {}) or {}
@@ -599,18 +558,19 @@ def render_analysis_area(report):
             c3.metric("Predicted Next Valuation (USD, online)", f"${val:,.0f}" if isinstance(val, (int, float)) and val else "N/A")
 
 # =========================
-# Main (wizard flow)
+# Main
 # =========================
 async def main():
-    if 'view' not in st.session_state:
-        st.session_state.view = 'input'
-    if 'step' not in st.session_state:
-        st.session_state.step = 0
-
     engine = load_engine()
 
     if st.session_state.view == 'input':
-        # First page: PDF quick analysis + Company Profile
+        # Header
+        with card():
+            col1, col2 = st.columns([1, 5])
+            col1.image("Anthill Logo-Falcon.png", width=120)
+            col2.markdown("<h1>Anthill AI+ Evaluation</h1>", unsafe_allow_html=True)
+
+        # Quick PDF path (optional)
         render_pdf_quick_analysis()
         st.markdown("---")
 
@@ -623,34 +583,25 @@ async def main():
             with cols[1]:
                 st.markdown("2) Metrics & Financials — unlocked after profile")
 
-        if st.session_state.step == 0:
-            profile_inputs, valid = render_company_profile_step()
-            with card():
-                col1, col2 = st.columns([1, 2])
-                if col1.button("Next ➡️", disabled=not valid, use_container_width=True):
-                    # Persist and move to step 1
-                    st.session_state.profile_inputs = profile_inputs
-                    # Keep some fields in session for defaults
-                    for k, v in profile_inputs.items():
-                        st.session_state[k] = v
-                    st.session_state.step = 1
-                    st.rerun()
-                if not valid:
-                    col2.caption("Fill required fields to continue to Metrics & Financials.")
+        # Wizard
+        if st.session_state.wizard_step == 0:
+            render_company_profile_step()
         else:
-            # Step 1 (metrics)
             profile_inputs = st.session_state.get("profile_inputs", {})
-            metrics_inputs = render_metrics_step(profile_inputs)
+            render_metrics_step(profile_inputs)
 
     elif st.session_state.view == 'analysis':
-        with st.spinner("Calculating SSQ... Running deep research... Building IC-grade memo..."):
+        with st.spinner("Calculating SSQ... Running deep web research... Building IC-grade memo..."):
             try:
-                report = await engine.comprehensive_analysis(st.session_state.inputs, st.session_state.get('comps_ticker', 'ZOMATO.BSE'))
+                report = await engine.comprehensive_analysis(
+                    st.session_state.inputs,
+                    st.session_state.get('comps_ticker', 'ZOMATO.BSE')
+                )
                 st.session_state.report = report
                 render_analysis_area(report)
             except Exception as e:
                 st.error("A critical error occurred during analysis. Please try again.")
-                logging.error(f"Analysis failed: {e}", exc_info=True)
+                logging.error("Analysis failed", exc_info=True)
                 if st.button("⬅️ Try Again"):
                     st.session_state.view = 'input'
                     st.rerun()
