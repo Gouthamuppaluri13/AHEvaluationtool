@@ -51,10 +51,10 @@ def _normalize_sources(sources: Any, max_n: int = 20) -> List[Dict[str, Any]]:
             continue
         seen.add(key)
         snippet = str(s.get("snippet", "")).strip()
-        conf = s.get("confidence", None)
-        if isinstance(conf, (int, float)):
+        conf = s.get("confidence", 0.5)
+        try:
             conf_f = float(conf)
-        else:
+        except Exception:
             conf_f = 0.5
         out.append({"title": title, "url": url, "snippet": snippet, "confidence": conf_f})
         if len(out) >= max_n:
@@ -66,8 +66,8 @@ class DeepResearchService:
     """
     Provider-agnostic wrapper (Grok-compatible, OpenAI-style).
     - Multi-pass: chat+web_search → chat(no tools) → responses endpoint.
-    - Strict JSON for research and memo, with source normalization/deduplication.
-    - Gracefully degrades with neutral messages (no provider exposed in UI).
+    - STRICT JSON for research + memo + specialized evaluators.
+    - Normalizes/dedupes sources, hides provider in UI.
 
     Config (env or __init__):
     - RESEARCH_API_KEY (falls back to GROK_API_KEY)
@@ -164,7 +164,7 @@ class DeepResearchService:
 
         return json.dumps({"error": f"external_research_unavailable: {last_err}"}), "error"
 
-    # ---------- Public API ----------
+    # ---------- Public: core research ----------
     def research(self, company: str, sector: str, location: str, description: str) -> Dict[str, Any]:
         if not self.enabled:
             return {"notice": "External research service is not configured.", "summary": "", "sections": {}, "sources": [], "memo": {}}
@@ -253,23 +253,77 @@ Rules:
         data["_diagnostics"] = {"route": route}
         return data
 
-    def build_ic_memo(self, context: Dict[str, Any]) -> Dict[str, Any]:
+    # ---------- Public: subjective AI scoring ----------
+    def ai_score_subjectives(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Score subjective factors like team execution and investor quality using provided evidence.
+        Returns STRICT JSON:
+        {
+          "team_execution_score": 0-10,
+          "investor_quality_score": 0-10,
+          "rationale": "...",
+          "red_flags": "...",
+          "confidence": 0-1
+        }
+        """
         if not self.enabled:
             return {}
         system = (
-            "You are a veteran VC partner preparing an Investment Committee memo. "
-            "Use the supplied quantitative KPIs and the research bundle to produce a crisp, specific, and defensible memo. "
-            "Cite data inline using [n] tags corresponding to sources if appropriate. Output STRICT JSON only."
+            "You are a VC partner evaluating subjective signals with rigor. "
+            "Use concrete evidence to rate Team Execution and Investor Quality on a 0–10 scale. Avoid hype."
         )
-        user = (
-            "Context JSON follows. Produce ONLY JSON for the memo with fields: "
-            "executive_summary, investment_thesis, market, product, traction, unit_economics, gtm, competition, team, "
-            "risks, catalysts, round_dynamics, use_of_proceeds, valuation_rationale, kpis_next_12m, exit_paths, "
-            "recommendation, conviction.\n\n"
-            f"{json.dumps(context)[:18000]}"
-        )
+        user = "Provide STRICT JSON only with fields team_execution_score, investor_quality_score, rationale, red_flags, confidence. Context:\n\n" + json.dumps(context)[:18000]
         content, route = self._chat_with_retries(system, user)
-        memo = _first_json(content or "") or {}
-        if isinstance(memo, dict):
-            memo["_diagnostics"] = {"route": route}
-        return memo if isinstance(memo, dict) else {}
+        res = _first_json(content or "") or {}
+        if isinstance(res, dict):
+            res["_diagnostics"] = {"route": route}
+        return res if isinstance(res, dict) else {}
+
+    # ---------- Public: valuation assist (multiples + peers) ----------
+    def valuation_assist(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Suggest ARR multiple band and rationale based on sector, stage, geography, and signals.
+        Returns STRICT JSON:
+        {
+          "suggested_arr_multiple_low": float,
+          "suggested_arr_multiple_high": float,
+          "rationale": "...",
+          "peer_set": [{"name":"...", "note":"..."}, ...]
+        }
+        """
+        if not self.enabled:
+            return {}
+        system = (
+            "You are a public/private markets specialist. Suggest a defensible ARR multiple band by sector/stage with quality adjustments. "
+            "Be conservative; cite logic. STRICT JSON only."
+        )
+        user = "Return STRICT JSON fields suggested_arr_multiple_low, suggested_arr_multiple_high, rationale, peer_set[]. Context:\n\n" + json.dumps(context)[:18000]
+        content, route = self._chat_with_retries(system, user)
+        res = _first_json(content or "") or {}
+        if isinstance(res, dict):
+            res["_diagnostics"] = {"route": route}
+        return res if isinstance(res, dict) else {}
+
+    # ---------- Public: SSQ insights (weights + notes) ----------
+    def ssq_insights(self, deep_factors: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Analyze Speed Scaling deep-dive factors and propose weights, factor notes, and an adjustment -0.5..+0.5 to SSQ.
+        Returns STRICT JSON:
+        {
+          "weights": {"Maximum Market Size": 0.05, ...},
+          "factor_notes": {"Maximum Market Size": "note", ...},
+          "ssq_adjustment": float  # -0.5..+0.5
+        }
+        """
+        if not self.enabled:
+            return {}
+        system = (
+            "You are a growth-stage operator. Assign weights to speed scaling factors and provide factor-level notes. "
+            "Return STRICT JSON with weights, factor_notes, and ssq_adjustment (-0.5..+0.5)."
+        )
+        user = "Deep factors follow. Provide STRICT JSON.\n\n" + json.dumps(deep_factors)[:18000]
+        content, route = self._chat_with_retries(system, user)
+        res = _first_json(content or "") or {}
+        if isinstance(res, dict):
+            res["_diagnostics"] = {"route": route}
+        return res if isinstance(res, dict) else {}
