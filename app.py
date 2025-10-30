@@ -113,7 +113,6 @@ def display_deep_dive_intel(data: Dict[str, Any]):
                     else:
                         st.markdown(f"**{sub_key.replace('_', ' ').title()}:** {value}")
             elif isinstance(content, list):
-                # Card per competitive item
                 for item in content:
                     if isinstance(item, dict):
                         with card():
@@ -130,63 +129,58 @@ def render_pdf_autorun_area():
         uploaded = st.file_uploader("Upload a startup PDF deck", type=["pdf"], key="pdf_uploader")
         default_ticker = st.text_input("Optional: Public Comps Ticker", "ZOMATO.BSE", help="Used for the public comps lookup")
 
-        colp, colr, colc = st.columns([1, 1, 1])
+        colp, colr, colc, cols = st.columns([1, 1, 1, 1])
         with colp:
-            parse = st.button("🔎 Parse PDF", use_container_width=True, key="parse_pdf_btn")
+            parse_clicked = st.button("🔎 Parse PDF", use_container_width=True, key="parse_pdf_btn")
         with colr:
-            run_from_pdf = st.button(
-                "🚀 Run Analysis from PDF",
-                use_container_width=True,
-                key="run_pdf_btn",
-                disabled=("pdf_extracted_inputs" not in st.session_state)
-            )
+            run_clicked = st.button("🚀 Run Analysis from PDF", use_container_width=True, key="run_pdf_btn")
         with colc:
-            clear = st.button(
-                "🧹 Clear",
-                use_container_width=True,
-                key="clear_pdf_btn",
-                disabled=("pdf_extracted_inputs" not in st.session_state)
-            )
+            clear_clicked = st.button("🧹 Clear", use_container_width=True, key="clear_pdf_btn")
+        with cols:
+            auto_run = st.checkbox("Auto-run after parse", value=False, key="pdf_auto_run_ck")
 
-        # Handle parse action
-        if parse:
+        if parse_clicked:
             if uploaded is None:
                 st.warning("Please upload a PDF first.")
             else:
                 with st.spinner("Extracting content and building inputs from PDF..."):
                     try:
                         ingestor = PDFIngestor(st.secrets.get("GEMINI_API_KEY"))
-                        # Use getvalue() to avoid empty reads across reruns
                         extracted = ingestor.extract(uploaded.getvalue())
                         st.session_state["pdf_extracted_inputs"] = extracted
                         st.session_state["pdf_extracted_ticker"] = default_ticker
                         st.success("Parsed PDF successfully. Review extracted fields below.")
+                        if st.session_state.get("pdf_auto_run_ck"):
+                            st.session_state.view = 'analysis'
+                            st.session_state.inputs = extracted
+                            st.session_state.comps_ticker = default_ticker or "ZOMATO.BSE"
+                            st.rerun()
                     except Exception as e:
                         st.error(f"Failed to parse PDF: {e}")
 
-        # Handle clear action
-        if clear:
+        if clear_clicked:
             st.session_state.pop("pdf_extracted_inputs", None)
             st.session_state.pop("pdf_extracted_ticker", None)
             st.info("Cleared parsed PDF data.")
 
-        # Preview (persists across reruns)
-        if "pdf_extracted_inputs" in st.session_state:
-            extracted = st.session_state["pdf_extracted_inputs"]
+        parsed = st.session_state.get("pdf_extracted_inputs")
+        if parsed:
+            st.caption("Status: Parsed ✅ — you can run analysis now.")
             prev_cols = st.columns(2)
             left_keys = ["company_name", "sector", "stage", "location", "focus_area", "founder_type", "team_size", "num_investors"]
             right_keys = ["arr", "burn", "cash", "ltv_cac_ratio", "gross_margin_pct", "monthly_churn_pct", "product_stage_score", "team_score"]
             with prev_cols[0]:
                 for k in left_keys:
-                    st.write(f"• {k}: {extracted.get(k)}")
+                    st.write(f"• {k}: {parsed.get(k)}")
             with prev_cols[1]:
                 for k in right_keys:
-                    st.write(f"• {k}: {extracted.get(k)}")
+                    st.write(f"• {k}: {parsed.get(k)}")
             with st.expander("Show all extracted fields"):
-                st.json(extracted)
+                st.json(parsed)
+        else:
+            st.caption("Status: Waiting for parse…")
 
-        # Handle run action (outside parse branch so it fires reliably)
-        if run_from_pdf:
+        if run_clicked:
             if "pdf_extracted_inputs" not in st.session_state:
                 st.warning("Please parse a PDF first.")
             else:
