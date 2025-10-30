@@ -642,7 +642,7 @@ def render_deep_dive_tab(report: Dict[str, Any]):
             c4.metric("Target GM (%)", desired.get("target_gm_pct", "—"))
             c5.metric("Runway (months)", desired.get("target_runway_months", "—"))
             if desired.get("milestones"):
-                st.caption(f"Milestones: {desired.get('milestones']}")
+                st.caption(f"Milestones: {desired.get('milestones')}")
 
 # =========================
 # Memo utils and Analysis page
@@ -766,3 +766,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
