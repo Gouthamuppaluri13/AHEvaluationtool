@@ -18,20 +18,29 @@ from services.pdf_ingest import PDFIngestor
 # =========================
 apply_theme(page_title="Anthill AI+ Evaluation", page_icon="🦅")
 
-# Compact CSS to remove unnecessary whitespace and tighten layout
+# Ultra-compact CSS to remove unnecessary whitespace and tighten layout
 st.markdown(
     """
     <style>
-    .block-container {padding-top: 0.75rem !important; padding-bottom: 1.25rem !important; max-width: 1200px;}
-    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {margin-top: 0.4rem; margin-bottom: 0.4rem;}
-    .stMarkdown p {margin: 0.25rem 0;}
-    .stDivider {margin: 0.5rem 0 !important;}
-    .stButton > button {padding: 0.45rem 0.8rem; border-radius: 8px;}
-    .stTextInput, .stSelectbox, .stTextArea, .stNumberInput, .stSlider {margin-bottom: 0.4rem;}
-    div[data-testid="stMetric"] {margin-bottom: 0.25rem;}
-    .stTabs [data-baseweb="tab-list"] {gap: 0.25rem;}
-    .stTabs [data-baseweb="tab"] {padding: 0.35rem 0.6rem;}
-    .css-1dp5vir, .e1f1d6gn3 {margin: 0 !important;}  /* strip extra vertical gaps in some Streamlit builds */
+    /* Remove Streamlit default header height/spacing */
+    header[data-testid="stHeader"] { height: 0px; padding: 0; background: transparent; }
+    /* Tighten main container padding and max width */
+    .block-container { padding-top: 0.35rem !important; padding-bottom: 0.75rem !important; max-width: 1200px; }
+    /* Reduce vertical gaps between Streamlit vertical/horizontal blocks */
+    [data-testid="stVerticalBlock"] { gap: 0.35rem !important; }
+    [data-testid="stHorizontalBlock"] { gap: 0.35rem !important; }
+    /* Compact tabs and metrics */
+    .stTabs [data-baseweb="tab-list"] { gap: 0.25rem !important; }
+    .stTabs [data-baseweb="tab"] { padding: 0.28rem 0.5rem !important; }
+    div[data-testid="stMetric"] { margin-bottom: 0.2rem !important; }
+    /* Compact form controls */
+    .stTextInput, .stSelectbox, .stTextArea, .stNumberInput, .stSlider { margin-bottom: 0.35rem !important; }
+    .stButton > button { padding: 0.42rem 0.75rem !important; border-radius: 8px !important; }
+    /* Compact headings and paragraphs */
+    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 { margin-top: 0.25rem !important; margin-bottom: 0.25rem !important; }
+    .stMarkdown p { margin: 0.20rem 0 !important; }
+    /* Remove extraneous margins introduced by some Streamlit builds */
+    .css-1dp5vir, .e1f1d6gn3 { margin: 0 !important; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -54,10 +63,10 @@ for k in ["FX_INR_PER_USD", "RESEARCH_API_URL", "RESEARCH_MODEL", "RESEARCH_RESP
     except Exception:
         pass
 
-# Flags
+# Hide diagnostics in UI unless explicitly enabled
 SHOW_DEV_DIAGNOSTICS = bool(os.getenv("DEBUG_UI", ""))
 
-# Hero (single, no duplicate headers elsewhere)
+# Single hero at top (avoid duplicate headings/cards elsewhere)
 hero("Anthill AI+ Evaluation", "VC copilot with research-amplified memos and calibrated valuations.")
 
 @st.cache_resource
@@ -97,7 +106,7 @@ def create_gauge_chart(score, title):
             }
         )
     )
-    fig.update_layout(template="simple_white", paper_bgcolor="rgba(0,0,0,0)", margin=dict(l=0, r=0, t=35, b=0), height=220)
+    fig.update_layout(template="simple_white", paper_bgcolor="rgba(0,0,0,0)", margin=dict(l=0, r=0, t=30, b=0), height=200)
     return fig
 
 def create_spider_chart(data, title):
@@ -112,7 +121,7 @@ def create_spider_chart(data, title):
     fig.update_layout(
         template="simple_white", title=dict(text=title, font=dict(size=16)),
         polar=dict(bgcolor='rgba(255,255,255,0)', radialaxis=dict(visible=True, range=[0, 10])),
-        paper_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=35, b=0), height=280
+        paper_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=30, b=0), height=260
     )
     return fig
 
@@ -144,15 +153,13 @@ def display_research(md: Dict[str, Any]):
     if "error" in ext:
         st.info("External research was unavailable. Please try again."); return
 
-    # Summary
     if ext.get("summary"):
         with card():
             _render_paragraphs("Summary", ext["summary"])
 
-    # Sections in two compact columns
     sections = ext.get("sections", {}) or {}
     if sections:
-        colL, colR = st.columns(2)
+        colL, colR = st.columns(2, gap="small")
         left = ["overview", "products", "business_model", "gtm", "unit_economics", "funding", "investors", "leadership"]
         right = ["hiring", "traction", "customers", "pricing", "competitors", "moat", "partnerships", "regulatory", "risks", "tech_stack", "roadmap"]
         with colL:
@@ -166,7 +173,6 @@ def display_research(md: Dict[str, Any]):
                     with card():
                         _render_paragraphs(k.replace("_", " ").title(), sections[k])
 
-    # Citations
     sources = ext.get("sources", []) or []
     if sources:
         with card():
@@ -183,7 +189,7 @@ def display_research(md: Dict[str, Any]):
 def render_pdf_quick_analysis():
     section_heading("Quick Analysis From PDF", "Upload a deck and generate the full evaluation")
     uploaded = st.file_uploader("Upload PDF deck", type=["pdf"], key="pdf_uploader_firstpage")
-    colx, coly = st.columns([3, 2])
+    colx, coly = st.columns([3, 2], gap="small")
     comps_ticker = colx.text_input("Public Comps Ticker (optional)", "ZOMATO.BSE")
     run_clicked = coly.button("Run Analysis from PDF", use_container_width=True)
 
@@ -214,7 +220,7 @@ FOCUS_AREA_OPTIONS = {
 def render_company_profile_step() -> Dict[str, Any]:
     section_heading("Step 1 — Company Profile", "Complete this to unlock Metrics")
     inputs: Dict[str, Any] = {}
-    c1, c2 = st.columns(2)
+    c1, c2 = st.columns(2, gap="small")
     with c1:
         inputs['company_name'] = st.text_input("Company Name", st.session_state.profile_inputs.get('company_name', ''))
         fa_keys = list(FOCUS_AREA_OPTIONS.keys())
@@ -236,12 +242,12 @@ def render_company_profile_step() -> Dict[str, Any]:
         default_ft = st.session_state.profile_inputs.get('founder_type', ft_values[0])
         if default_ft not in ft_values: default_ft = ft_values[0]
         inputs['founder_type'] = st.selectbox("Founder Archetype", ft_values, index=ft_values.index(default_ft))
-        inputs['founder_bio'] = st.text_area("Founder Bio", st.session_state.profile_inputs.get('founder_bio', ''), height=90)
-        inputs['product_desc'] = st.text_area("Product Description", st.session_state.profile_inputs.get('product_desc', ''), height=90)
+        inputs['founder_bio'] = st.text_area("Founder Bio", st.session_state.profile_inputs.get('founder_bio', ''), height=88)
+        inputs['product_desc'] = st.text_area("Product Description", st.session_state.profile_inputs.get('product_desc', ''), height=88)
 
     required = ["company_name", "focus_area", "sector", "location", "stage", "founder_type", "product_desc"]
     is_valid = all(bool(inputs.get(k)) for k in required)
-    col_next, _ = st.columns([1, 5])
+    col_next, _ = st.columns([1, 5], gap="small")
     if col_next.button("Next →", disabled=not is_valid, use_container_width=True):
         if is_valid:
             st.session_state.profile_inputs = inputs
@@ -256,22 +262,22 @@ def render_sector_specific_metrics(focus_area: str, sector: str) -> Dict[str, An
     st.markdown("**Sector-specific Metrics**")
     if focus_area == "Enhance Urban Lifestyle":
         if sector == "E-commerce & D2C":
-            c1, c2, c3 = st.columns(3)
+            c1, c2, c3 = st.columns(3, gap="small")
             extra["aov_inr"] = c1.number_input("Avg Order Value (₹)", value=1200, min_value=0)
             extra["monthly_orders"] = c2.number_input("Monthly Orders", value=25000, min_value=0)
             extra["repeat_rate_pct"] = c3.number_input("Repeat Rate (%)", value=35.0, min_value=0.0, max_value=100.0)
         elif sector == "FinTech":
-            c1, c2, c3 = st.columns(3)
+            c1, c2, c3 = st.columns(3, gap="small")
             extra["take_rate_pct"] = c1.number_input("Take Rate (%)", value=1.5, min_value=0.0, max_value=100.0, step=0.1)
             extra["transaction_volume_gmv"] = c2.number_input("Monthly GMV (₹)", value=1_000_000_000, min_value=0)
             extra["delinquency_rate_pct"] = c3.number_input("Delinquency (%)", value=1.2, min_value=0.0, max_value=100.0, step=0.1)
     elif focus_area == "Live Healthy":
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3 = st.columns(3, gap="small")
         extra["regulatory_stage"] = c1.selectbox("Clinical Stage", ["None", "Pre-clinical", "Phase I/II", "Phase III", "Approved"], index=0)
         extra["gross_retention_pct"] = c2.number_input("Gross Retention (%)", value=90.0, min_value=0.0, max_value=120.0, step=0.5)
         extra["enterprise_sales_cycle_days"] = c3.number_input("Sales Cycle (days)", value=120, min_value=0, step=5)
     elif focus_area == "Mitigate Climate Change":
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3 = st.columns(3, gap="small")
         extra["trl_level"] = c1.slider("TRL (1-9)", min_value=1, max_value=9, value=6)
         extra["capex_per_unit_inr"] = c2.number_input("CapEx / Unit (₹)", value=500000, min_value=0)
         extra["opex_per_unit_inr"] = c3.number_input("OpEx / Unit (₹/mo)", value=5000, min_value=0)
@@ -281,28 +287,28 @@ def render_metrics_step(profile: Dict[str, Any]) -> Dict[str, Any]:
     section_heading("Step 2 — Metrics & Financials", "Quantitative context")
     inputs: Dict[str, Any] = {}
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3 = st.columns(3, gap="small")
     inputs['founded_year'] = c1.number_input("Founded Year", 2010, 2025, profile.get('founded_year', 2022))
     inputs['total_funding_usd'] = c2.number_input("Total Funding (USD)", value=5_000_000, min_value=0)
     inputs['team_size'] = c3.number_input("Team Size", value=50, min_value=1)
 
-    c4, c5, c6, c7 = st.columns(4)
+    c4, c5, c6, c7 = st.columns(4, gap="small")
     inputs['product_stage_score'] = c4.slider("Product Stage (0-10)", 0.0, 10.0, 8.0)
     inputs['team_score'] = c5.slider("Execution (0-10)", 0.0, 10.0, 8.0)
     inputs['moat_score'] = c6.slider("Moat (0-10)", 0.0, 10.0, 7.0)
     inputs['investor_quality_score'] = c7.slider("Investor Quality (1-10)", 1.0, 10.0, 7.0)
 
-    c8, c9, c10 = st.columns(3)
+    c8, c9, c10 = st.columns(3, gap="small")
     inputs['ltv_cac_ratio'] = c8.slider("LTV:CAC", 0.1, 10.0, 3.5, 0.1)
     inputs['gross_margin_pct'] = c9.slider("Gross Margin (%)", 0.0, 95.0, 60.0, 1.0)
     inputs['monthly_churn_pct'] = c10.slider("Monthly Churn (%)", 0.0, 20.0, 2.0, 0.1)
 
-    c11, c12, c13 = st.columns(3)
+    c11, c12, c13 = st.columns(3, gap="small")
     inputs['arr'] = c11.number_input("Current ARR (₹)", value=80_000_000, min_value=0)
     inputs['burn'] = c12.number_input("Monthly Burn (₹)", value=10_000_000, min_value=0)
     inputs['cash'] = c13.number_input("Cash Reserves (₹)", value=90_000_000, min_value=0)
 
-    c14, c15, c16 = st.columns(3)
+    c14, c15, c16 = st.columns(3, gap="small")
     inputs['expected_monthly_growth_pct'] = c14.number_input("Expected Monthly Growth (%)", value=5.0, min_value=-50.0, max_value=200.0, step=0.5)
     inputs['growth_volatility_pct'] = c15.number_input("Growth Volatility σ (%)", value=3.0, min_value=0.0, max_value=100.0, step=0.5)
     inputs['lead_to_customer_conv_pct'] = c16.number_input("Lead→Customer Conversion (%)", value=5.0, min_value=0.1, max_value=100.0, step=0.1)
@@ -320,7 +326,7 @@ def render_metrics_step(profile: Dict[str, Any]) -> Dict[str, Any]:
     inputs.update(render_sector_specific_metrics(profile['focus_area'], profile['sector']))
 
     # Comps ticker + actions
-    col_back, col_ticker, col_run = st.columns([1, 2, 2])
+    col_back, col_ticker, col_run = st.columns([1, 2, 2], gap="small")
     comps_ticker = col_ticker.text_input("Public Comps Ticker", st.session_state.get("comps_ticker", "ZOMATO.BSE"))
     if col_back.button("← Back"):
         st.session_state.wizard_step = 0
@@ -360,7 +366,7 @@ def render_summary_dashboard(report):
     rec_icon = {"High": "🚀", "Medium": "👀", "Low": "✋"}.get(conviction, "❓")
 
     section_heading("Executive Dashboard")
-    row1 = st.columns([1.1, 0.9, 1.0])
+    row1 = st.columns([1.1, 0.9, 1.0], gap="small")
     with row1[0]:
         with card():
             st.markdown(f"### {rec_icon} {memo.get('recommendation','Watchlist')}")
@@ -384,9 +390,9 @@ def render_summary_dashboard(report):
 def render_analysis_area(report):
     prof = report.get('profile', None)
     company_name = getattr(prof, 'company_name', 'Company') if prof else 'Company'
-    header_cols = st.columns([3, 1])
+    header_cols = st.columns([3, 1], gap="small")
     header_cols[0].markdown(f"## Diagnostic Report: {company_name}")
-    if header_cols[1].button("New Analysis"):
+    if header_cols[1].button("New Analysis", use_container_width=True):
         keys_to_clear = ['report', 'inputs', 'comps_ticker', 'pdf_extracted_inputs', 'pdf_extracted_ticker', 'wizard_step', 'profile_inputs']
         st.session_state.view = 'input'
         for k in keys_to_clear:
@@ -405,7 +411,7 @@ def render_analysis_area(report):
         st.markdown("### Executive Summary")
         with card(): st.markdown(memo.get('executive_summary', 'Not available.'), unsafe_allow_html=True)
         with st.expander("Full memo"):
-            cols = st.columns(2)
+            cols = st.columns(2, gap="small")
             detail_fields = ["investment_thesis","market","product","traction","unit_economics","gtm","competition","team","risks","catalysts","round_dynamics","use_of_proceeds","valuation_rationale","kpis_next_12m","exit_paths"]
             for i, k in enumerate(detail_fields):
                 if memo.get(k):
@@ -415,7 +421,7 @@ def render_analysis_area(report):
         st.download_button("Download Memo (Markdown)", data=memo_to_markdown(memo), file_name=f"{company_name}_Investment_Memo.md", mime="text/markdown")
 
     with tabs[1]:
-        cols = st.columns([1,1])
+        cols = st.columns([1,1], gap="small")
         with cols[0]:
             st.plotly_chart(create_spider_chart(report.get('risk_matrix', {}), "Risk Profile"), use_container_width=True)
         with cols[1]:
@@ -432,7 +438,7 @@ def render_analysis_area(report):
 
     with tabs[4]:
         forecast = report.get('fundraise_forecast', {}) or {}
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3 = st.columns(3, gap="small")
         col1.metric("Round Likelihood (6m)", f"{forecast.get('round_likelihood_6m', 0.0):.1%}")
         col2.metric("Round Likelihood (12m)", f"{forecast.get('round_likelihood_12m', 0.0):.1%}")
         col3.metric("Time to Next Round", f"{forecast.get('expected_time_to_next_round_months', 0.0):.1f} months")
@@ -440,7 +446,7 @@ def render_analysis_area(report):
     with tabs[5]:
         ml = report.get("ml_predictions", {}) or {}
         online = ml.get("online", {}) or {}
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3 = st.columns(3, gap="small")
         col1.metric("Online Likelihood (12m)", f"{online.get('round_probability_12m', 0.0):.1%}")
         col2.metric("Online Likelihood (6m)", f"{online.get('round_probability_6m', 0.0):.1%}")
         val = online.get("predicted_valuation_usd", None)
@@ -453,11 +459,10 @@ async def main():
     engine = load_engine()
 
     if st.session_state.view == 'input':
-        # Top banner actions (no duplicate logos/headers)
+        # Top: PDF quick analysis, then wizard steps
         render_pdf_quick_analysis()
 
-        # Step indicator (simple, compact)
-        step_cols = st.columns(2)
+        step_cols = st.columns(2, gap="small")
         step_cols[0].markdown("**1) Company Profile** ✅" if st.session_state.wizard_step == 1 else "**1) Company Profile**")
         step_cols[1].markdown("**2) Metrics & Financials**" + (" ✅" if st.session_state.wizard_step == 1 else ""))
 
