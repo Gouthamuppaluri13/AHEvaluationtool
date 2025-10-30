@@ -42,7 +42,6 @@ class PDFIngestor:
                 if txt:
                     chunks.append(txt)
         text = "\n".join(chunks)
-        # Simple normalization
         text = re.sub(r"[ \t]+", " ", text)
         text = re.sub(r"\n{2,}", "\n\n", text).strip()
         return text
@@ -64,7 +63,6 @@ class PDFIngestor:
             return default
 
     def _fallback_extract(self, text: str) -> Dict[str, Any]:
-        # Very simple heuristics for key fields if LLM isn’t available.
         def find(patterns: List[str], default: Optional[str] = None) -> Optional[str]:
             for p in patterns:
                 m = re.search(p, text, flags=re.I)
@@ -89,7 +87,6 @@ class PDFIngestor:
         founder_bio = find([r"Founder(?:s)?(?: Bio)?[:\-]\s*(.+)"], "")
         product_desc = find([r"(?:Product|Solution|Platform)[:\-]\s*(.+)"], "")
 
-        # Defaults and safe ranges
         data = {
             "company_name": company,
             "focus_area": "Enhance Urban Lifestyle",
@@ -123,7 +120,6 @@ class PDFIngestor:
             "growth_volatility_pct": 3.0,
             "lead_to_customer_conv_pct": 5.0,
 
-            # If PDF doesn’t contain traffic, synthesize a plausible ramp
             "monthly_web_traffic": [5000, 6200, 8100, 11000, 13500, 16000, 19000, 22000, 25000, 28000, 31000, 35000],
         }
         return data
@@ -148,16 +144,16 @@ class PDFIngestor:
             '  "total_funding_usd": number,\n'
             '  "team_size": int,\n'
             '  "num_investors": int,\n'
-            '  "product_stage_score": number,  // 0-10\n'
-            '  "team_score": number,          // 0-10\n'
-            '  "moat_score": number,          // 0-10\n'
-            '  "investor_quality_score": number, // 1-10\n'
+            '  "product_stage_score": number,\n'
+            '  "team_score": number,\n'
+            '  "moat_score": number,\n'
+            '  "investor_quality_score": number,\n'
             '  "ltv_cac_ratio": number,\n'
             '  "gross_margin_pct": number,\n'
             '  "monthly_churn_pct": number,\n'
-            '  "arr": number,   // INR\n'
-            '  "burn": number,  // INR per month\n'
-            '  "cash": number,  // INR\n'
+            '  "arr": number,\n'
+            '  "burn": number,\n'
+            '  "cash": number,\n'
             '  "expected_monthly_growth_pct": number,\n'
             '  "growth_volatility_pct": number,\n'
             '  "lead_to_customer_conv_pct": number,\n'
@@ -180,7 +176,6 @@ class PDFIngestor:
             return None
 
     def _normalize(self, d: Dict[str, Any]) -> Dict[str, Any]:
-        # Coerce types and fill defaults
         out: Dict[str, Any] = {}
         out["company_name"] = str(d.get("company_name") or "Untitled Company")
         fa = str(d.get("focus_area") or "").strip()
