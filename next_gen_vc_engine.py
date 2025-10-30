@@ -1,19 +1,20 @@
 """
 VC engine with research-amplified IC memo and calibrated valuation/probability.
-- External DeepResearchService (internally Grok-compatible) powers deep-dive + memo generation/refinement.
+- DeepResearchService (internally Grok-compatible) powers deep-dive + memo generation/refinement.
 - Deterministic valuation: stage/sector bands + SSQ, growth, margin, retention, burn efficiency, FX-normalized ARR.
 - Probability: logistic over SSQ, burn multiple, churn, Rule of 40, and stage.
+- Research cache with TTL to reduce repeat API calls.
 """
 
 import logging
 import os
 import math
+import time
 import asyncio
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, Any, Optional, List, Tuple
 
-import numpy as np
 import pandas as pd
 
 # Optional: Alpha Vantage
@@ -24,7 +25,7 @@ except Exception:
     TimeSeries = None  # type: ignore
     HAS_ALPHA = False
 
-# Optional app-local services (guarded)
+# Optional dependencies/services (guarded)
 try:
     from services.model_registry import ModelRegistry  # type: ignore
 except Exception:
@@ -145,11 +146,7 @@ class ExternalDataIntegrator:
         try:
             data, meta = self.ts.get_quote_endpoint(symbol=ticker)  # type: ignore
             price = float(data["05. price"].iloc[-1])
-            return {
-                "Company": meta.get("2. Symbol", ticker),
-                "Price (₹)": f"{price:,.2f}",
-                "Market": meta.get("1. symbol", ticker).split(".")[-1],
-            }
+            return {"Company": meta.get("2. Symbol", ticker), "Price (₹)": f"{price:,.2f}", "Market": meta.get("1. symbol", ticker).split(".")[-1]}
         except Exception as e:
             return {"Error": f"API call failed for {ticker}: {e}"}
 
@@ -188,7 +185,11 @@ class NextGenVCEngine:
             except Exception as e:
                 logger.warning(f"[engine] DeepResearchService disabled: {e}")
 
-    # ---------- Helpers ----------
+        # Simple in-memory research cache: key -> (ts, payload)
+        self._research_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+        self._research_ttl_sec = int(os.getenv("RESEARCH_CACHE_TTL_SEC", "21600"))  # 6 hours default
+
+    # ---------- helpers ----------
     def _fx_rate(self) -> float:
         try:
             return float(os.environ.get("FX_INR_PER_USD") or "") or 83.0
@@ -212,7 +213,7 @@ class NextGenVCEngine:
     def _retention_factor(self, monthly_churn_pct: float) -> float:
         churn = max(0.0, min(50.0, monthly_churn_pct)) / 100.0
         annual_ret = pow(1.0 - churn, 12)
-        return float(0.5 + annual_ret * 0.65)  # ~0.5..1.15
+        return float(0.5 + annual_ret * 0.65)
 
     def _efficiency_factor(self, burn_multiple: float) -> float:
         if burn_multiple <= 1.0:
@@ -310,9 +311,32 @@ class NextGenVCEngine:
         high_abs = max(low_abs + 0.25e6, arr_usd_abs * high)
         return float(low_abs), float(high_abs)
 
-    # ---------- Main ----------
+    def _research_cache_key(self, company: str, sector: str, location: str, description: str) -> str:
+        return f"{company.strip().lower()}|{sector.strip().lower()}|{location.strip().lower()}|{(description or '').strip().lower()}"
+
+    def _get_research(self, company: str, sector: str, location: str, description: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        diagnostics = {"enabled": bool(self.research), "cache_hit": False, "error": ""}
+        if not self.research:
+            return {"notice": "External research service not available. Add RESEARCH_API_KEY."}, diagnostics
+
+        key = self._research_cache_key(company, sector, location, description)
+        now = time.time()
+        if key in self._research_cache:
+            ts, payload = self._research_cache[key]
+            if now - ts < self._research_ttl_sec:
+                diagnostics["cache_hit"] = True
+                return payload, diagnostics
+
+        try:
+            payload = self.research.research(company, sector, location, description)
+            self._research_cache[key] = (now, payload)
+            return payload, diagnostics
+        except Exception as e:
+            diagnostics["error"] = str(e)
+            return {"error": "Research unavailable right now."}, diagnostics
+
+    # ---------- main ----------
     async def comprehensive_analysis(self, inputs: Dict[str, Any], comps_ticker: str) -> Dict[str, Any]:
-        # Focus area
         fa = FocusArea.ENHANCE_URBAN_LIFESTYLE
         fa_val = str(inputs.get("focus_area", "")).strip()
         for x in FocusArea:
@@ -320,14 +344,15 @@ class NextGenVCEngine:
                 fa = x
                 break
 
-        # Strategy features
+        product_stage_score = float(inputs.get("product_stage_score", 5.0))
         if fa == FocusArea.LIVE_HEALTHY:
-            product_stage_score = float(inputs.get("product_stage_score", 5.0) * 0.3 + {"None":1,"Pre-clinical":3,"Phase I/II":6,"Phase III":8,"Approved":9}.get(str(inputs.get("regulatory_stage","None")),1)*0.7)
+            ce_map = {"None": 1, "Pre-clinical": 3, "Phase I/II": 6, "Phase III": 8, "Approved": 9}
+            c = ce_map.get(str(inputs.get("regulatory_stage", "None")), 1)
+            product_stage_score = float(product_stage_score * 0.3 + c * 0.7)
         elif fa == FocusArea.MITIGATE_CLIMATE_CHANGE:
             trl = float(inputs.get("trl_level", inputs.get("trl", 6)))
-            product_stage_score = float(inputs.get("product_stage_score", 5.0) * 0.5 + (max(1.0,min(9.0,trl))/9.0)*10.0*0.5)
-        else:
-            product_stage_score = float(inputs.get("product_stage_score", 5.0))
+            trl = max(1.0, min(9.0, trl))
+            product_stage_score = float(product_stage_score * 0.5 + (trl / 9.0) * 10.0 * 0.5)
 
         profile = AdvancedStartupProfile(
             company_name=str(inputs.get("company_name", "Untitled Company")),
@@ -338,7 +363,9 @@ class NextGenVCEngine:
             monthly_burn=float(inputs.get("burn", 0.0)),
             cash_reserves=float(inputs.get("cash", 0.0)),
             team_size=int(inputs.get("team_size", 0) or 0),
-            founder_personality_type=FounderPersonality.EXECUTOR if str(inputs.get("founder_type",'executor')).lower() not in {"technical","visionary","executor"} else FounderPersonality(str(inputs.get("founder_type")).lower()),
+            founder_personality_type=FounderPersonality.EXECUTOR
+            if str(inputs.get("founder_type", "executor")).lower() not in {"technical", "visionary", "executor"}
+            else FounderPersonality(str(inputs.get("founder_type")).lower()),
             product_maturity_score=product_stage_score,
             competitive_advantage_score=float(inputs.get("moat_score", 5.0)),
             adaptability_score=float(inputs.get("team_score", 5.0)),
@@ -348,7 +375,6 @@ class NextGenVCEngine:
         ssq_report = SpeedscaleQuotientCalculator(inputs, profile).calculate()
         ssq = float(ssq_report.get("ssq_score", 5.0))
 
-        # Optional tasks
         async def _run_online() -> Dict[str, Any]:
             if self.online_predictor is None:
                 return {}
@@ -367,28 +393,15 @@ class NextGenVCEngine:
                 logger.warning(f"[engine] Enrichment failed: {e}")
                 return {}
 
-        async def _run_research() -> Dict[str, Any]:
-            if self.research is None:
-                return {"notice": "External research service not available. Add RESEARCH_API_KEY."}
-            try:
-                return await asyncio.to_thread(
-                    self.research.research,
-                    profile.company_name,
-                    profile.sector,
-                    str(inputs.get("location", "")),
-                    str(inputs.get("product_desc", "")),
-                )
-            except Exception as e:
-                logger.warning(f"[engine] Deep research failed: {e}")
-                return {"error": "Research unavailable right now."}
+        async def _run_research() -> Tuple[Dict[str, Any], Dict[str, Any]]:
+            return await asyncio.to_thread(self._get_research, profile.company_name, profile.sector, str(inputs.get("location", "")), str(inputs.get("product_desc", "")))
 
         online_task = asyncio.create_task(_run_online())
         enrich_task = asyncio.create_task(_run_enrichment())
         research_task = asyncio.create_task(_run_research())
+        online_pred, enrichment, (research_res, research_diag) = await asyncio.gather(online_task, enrich_task, research_task)
 
-        online_pred, enrichment, research_res = await asyncio.gather(online_task, enrich_task, research_task)
-
-        market_analysis: Dict[str, Any] = {}
+        market_analysis: Dict[str, Any] = {"_diagnostics": {"research": research_diag}}
         if isinstance(research_res, dict):
             market_analysis["external_research"] = research_res
         if isinstance(enrichment, dict) and enrichment:
@@ -396,7 +409,6 @@ class NextGenVCEngine:
             market_analysis["recent_news"] = enrichment.get("recent_news", {})
             market_analysis["india_funding_dataset_context"] = enrichment.get("india_funding_dataset_context", {})
 
-        # Derived KPIs
         burn_mult = self._burn_multiple(profile.annual_revenue, profile.monthly_burn)
         growth_ann = self._annualized_growth(float(inputs.get("expected_monthly_growth_pct", 5.0)))
         ro40 = self._rule_of_40(growth_ann, float(inputs.get("gross_margin_pct", 60.0)))
@@ -404,12 +416,10 @@ class NextGenVCEngine:
         fx = self._fx_rate()
         arr_usd_abs = (profile.annual_revenue / (fx if fx > 0 else 83.0))
 
-        # Valuation + probability
         low_abs, high_abs = self._valuation_range_abs_usd(inputs, profile.sector, profile.stage, ssq)
         valuation_range_str = f"{self._fmt_usd_m(low_abs)} - {self._fmt_usd_m(high_abs)}"
         prob = self._success_probability(ssq, burn_mult, churn_pct, ro40, profile.stage)
 
-        # Simulation + comps + forecast
         def _simulate():
             cash = float(profile.cash_reserves)
             rev = float(profile.annual_revenue) / 12.0
@@ -447,31 +457,19 @@ class NextGenVCEngine:
             "Competition": float(10 - profile.competitive_advantage_score),
         }
 
-        final_verdict = {
-            "predicted_valuation_range_usd": valuation_range_str,
-            "success_probability_percent": round(prob * 100.0, 1),
-        }
+        final_verdict = {"predicted_valuation_range_usd": valuation_range_str, "success_probability_percent": round(prob * 100.0, 1)}
 
-        # Research-amplified IC memo: use provider to refine if possible
+        # Research-amplified memo (refinement pass)
         memo: Dict[str, Any] = {}
         ext = market_analysis.get("external_research", {}) if market_analysis else {}
         ext_memo = ext.get("memo", {}) if isinstance(ext, dict) else {}
+
         if isinstance(self.research, DeepResearchService):
-            # Build a compact context for memo refinement
             memo_ctx = {
-                "company": {
-                    "name": profile.company_name,
-                    "sector": profile.sector,
-                    "stage": profile.stage,
-                    "focus_area": profile.focus_area.value,
-                },
-                "valuation": {
-                    "range_usd": valuation_range_str,
-                    "low_abs_usd": round(low_abs, 2),
-                    "high_abs_usd": round(high_abs, 2),
-                },
+                "company": {"name": profile.company_name, "sector": profile.sector, "stage": profile.stage, "focus_area": profile.focus_area.value},
+                "valuation": {"range_usd": valuation_range_str, "low_abs_usd": round(low_abs, 2), "high_abs_usd": round(high_abs, 2)},
                 "kpis": {
-                    "ssq": ssq,
+                    "ssq": float(ssq),
                     "burn_multiple": round(burn_mult, 2),
                     "annual_growth_pct": round(growth_ann, 1),
                     "rule_of_40": round(ro40, 1),
@@ -486,11 +484,7 @@ class NextGenVCEngine:
                     "product_desc": str(inputs.get("product_desc", ""))[:800],
                     "founder_bio": str(inputs.get("founder_bio", ""))[:800],
                 },
-                "research": {
-                    "summary": ext.get("summary", ""),
-                    "sections": ext.get("sections", {}),
-                    "sources": ext.get("sources", [])[:20],
-                },
+                "research": {"summary": ext.get("summary", ""), "sections": ext.get("sections", {}), "sources": ext.get("sources", [])[:20]},
                 "probability": final_verdict["success_probability_percent"],
             }
             try:
@@ -507,7 +501,6 @@ class NextGenVCEngine:
             except Exception as e:
                 logger.warning(f"[engine] Memo refinement failed: {e}")
 
-        # If still empty, fallback to external memo or a deterministic memo
         if not memo:
             if isinstance(ext_memo, dict) and ext_memo.get("executive_summary"):
                 memo = {
@@ -522,12 +515,12 @@ class NextGenVCEngine:
                 memo = {
                     "executive_summary": (
                         f"{profile.company_name} — {profile.sector}, {profile.stage}. "
-                        f"ARR ≈ {self._fmt_usd_m(arr_usd_abs)} | SSQ {ssq:.1f} | Rule of 40 {ro40:.0f} | "
-                        f"Burn multiple {burn_mult:.2f}. Valuation: {valuation_range_str}."
+                        f"ARR ≈ {self._fmt_usd_m(arr_usd_abs)} | SSQ {ssq:.1f} | Rule of 40 {ro40:.0f} | Burn multiple {burn_mult:.2f}. "
+                        f"Valuation: {valuation_range_str}."
                     ),
                     "investment_thesis": "Compelling wedge and secular tailwinds; path to premium multiples requires sustained growth and capital efficiency.",
                     "market": "Attractive demand vectors and room for share capture within adjacent categories.",
-                    "product": "Differentiation via execution pace and defensible UX/infra; roadmap should harden moat.",
+                    "product": "Differentiation via execution pace and defensible UX/infra; roadmap should deepen moat.",
                     "traction": "Improving traffic and conversion; opportunity to formalize lighthouse logos.",
                     "unit_economics": f"LTV/CAC ≈ {float(inputs.get('ltv_cac_ratio', 3.5)):.1f}, churn ≈ {churn_pct:.1f}%/mo, gross margin ≈ {float(inputs.get('gross_margin_pct',60)):.0f}%.",
                     "gtm": "Mix of PLG and partner-led; expand channels with disciplined CAC thresholds.",
@@ -542,14 +535,20 @@ class NextGenVCEngine:
                     "exit_paths": "Strategic M&A optionality; IPO feasible with scale and margins.",
                     "bull_case_narrative": "Premium multiples via sustained growth, improving margins, and durable retention.",
                     "bear_case_narrative": "Slower growth or capital intensity caps multiple; dilution risk.",
-                    "recommendation": "Invest" if prob >= 0.68 else ("Watchlist" if prob >= 0.52 else "Pass"),
-                    "conviction": "High" if prob >= 0.78 else ("Medium" if prob >= 0.58 else "Low"),
+                    "recommendation": "Invest" if (final_verdict["success_probability_percent"] >= 68) else ("Watchlist" if final_verdict["success_probability_percent"] >= 52 else "Pass"),
+                    "conviction": "High" if (final_verdict["success_probability_percent"] >= 78) else ("Medium" if final_verdict["success_probability_percent"] >= 58 else "Low"),
                 }
 
         return {
             "final_verdict": final_verdict,
             "investment_memo": memo,
-            "risk_matrix": risk,
+            "risk_matrix": {
+                "Market": float(profile.market_risk_score),
+                "Execution": float(10 - profile.adaptability_score),
+                "Technology": float(profile.technology_risk_score),
+                "Regulatory": float(profile.regulatory_risk_score),
+                "Competition": float(10 - profile.competitive_advantage_score),
+            },
             "simulation": sim_res,
             "market_deep_dive": market_analysis,
             "public_comps": comps_res,
