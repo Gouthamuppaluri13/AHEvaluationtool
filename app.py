@@ -1,10 +1,8 @@
 import os
-import re
 import logging
 import asyncio
 from typing import Dict, Any
 
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -18,28 +16,20 @@ from services.pdf_ingest import PDFIngestor
 # =========================
 apply_theme(page_title="Anthill AI+ Evaluation", page_icon="🦅")
 
-# Ultra-compact CSS to remove unnecessary whitespace and tighten layout
 st.markdown(
     """
     <style>
-    /* Remove Streamlit default header height/spacing */
     header[data-testid="stHeader"] { height: 0px; padding: 0; background: transparent; }
-    /* Tighten main container padding and max width */
     .block-container { padding-top: 0.35rem !important; padding-bottom: 0.75rem !important; max-width: 1200px; }
-    /* Reduce vertical gaps between Streamlit vertical/horizontal blocks */
     [data-testid="stVerticalBlock"] { gap: 0.35rem !important; }
     [data-testid="stHorizontalBlock"] { gap: 0.35rem !important; }
-    /* Compact tabs and metrics */
     .stTabs [data-baseweb="tab-list"] { gap: 0.25rem !important; }
     .stTabs [data-baseweb="tab"] { padding: 0.28rem 0.5rem !important; }
     div[data-testid="stMetric"] { margin-bottom: 0.2rem !important; }
-    /* Compact form controls */
     .stTextInput, .stSelectbox, .stTextArea, .stNumberInput, .stSlider { margin-bottom: 0.35rem !important; }
     .stButton > button { padding: 0.42rem 0.75rem !important; border-radius: 8px !important; }
-    /* Compact headings and paragraphs */
     .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 { margin-top: 0.25rem !important; margin-bottom: 0.25rem !important; }
     .stMarkdown p { margin: 0.20rem 0 !important; }
-    /* Remove extraneous margins introduced by some Streamlit builds */
     .css-1dp5vir, .e1f1d6gn3 { margin: 0 !important; }
     </style>
     """,
@@ -48,7 +38,7 @@ st.markdown(
 
 # Wizard state
 if "wizard_step" not in st.session_state:
-    st.session_state.wizard_step = 0  # 0 = Company Profile, 1 = Metrics & Financials
+    st.session_state.wizard_step = 0
 if "profile_inputs" not in st.session_state:
     st.session_state.profile_inputs = {}
 if "view" not in st.session_state:
@@ -63,11 +53,7 @@ for k in ["FX_INR_PER_USD", "RESEARCH_API_URL", "RESEARCH_MODEL", "RESEARCH_RESP
     except Exception:
         pass
 
-# Hide diagnostics in UI unless explicitly enabled
-SHOW_DEV_DIAGNOSTICS = bool(os.getenv("DEBUG_UI", ""))
-
-# Single hero at top (avoid duplicate headings/cards elsewhere)
-hero("Anthill AI+ Evaluation", "VC copilot with research-amplified memos and calibrated valuations.")
+hero("Anthill AI+ Evaluation", "VC copilot with research‑amplified memos and calibrated valuations.")
 
 @st.cache_resource
 def load_engine():
@@ -84,53 +70,34 @@ def load_engine():
         st.stop()
 
 # =========================
-# Charts (compact)
+# Charts
 # =========================
 def create_gauge_chart(score, title):
-    fig = go.Figure(
-        go.Indicator(
-            mode="gauge+number",
-            value=score,
-            title={'text': title, 'font': {'size': 14}},
-            number={'font': {'size': 20}},
-            gauge={
-                'axis': {'range': [None, 10]},
-                'bar': {'color': "#0A84FF"},
-                'bgcolor': "rgba(255,255,255,0)",
-                'borderwidth': 0,
-                'steps': [
-                    {'range': [0, 3.3], 'color': 'rgba(255,59,48,0.10)'},
-                    {'range': [3.3, 6.6], 'color': 'rgba(255,204,0,0.10)'},
-                    {'range': [6.6, 10], 'color': 'rgba(52,199,89,0.10)'}
-                ]
-            }
-        )
-    )
+    fig = go.Figure(go.Indicator(mode="gauge+number", value=score, title={'text': title, 'font': {'size': 14}},
+                                 number={'font': {'size': 20}},
+                                 gauge={'axis': {'range': [None, 10]}, 'bar': {'color': "#0A84FF"},
+                                        'bgcolor': "rgba(255,255,255,0)", 'borderwidth': 0,
+                                        'steps': [{'range': [0, 3.3], 'color': 'rgba(255,59,48,0.10)'},
+                                                  {'range': [3.3, 6.6], 'color': 'rgba(255,204,0,0.10)'},
+                                                  {'range': [6.6, 10], 'color': 'rgba(52,199,89,0.10)'}]}))
     fig.update_layout(template="simple_white", paper_bgcolor="rgba(0,0,0,0)", margin=dict(l=0, r=0, t=30, b=0), height=200)
     return fig
 
 def create_spider_chart(data, title):
     if not isinstance(data, dict) or not data:
         data = {"Market": 5, "Execution": 5, "Technology": 5, "Regulatory": 5, "Competition": 5}
-    fig = go.Figure(
-        go.Scatterpolar(
-            r=list(data.values()), theta=list(data.keys()), fill='toself',
-            line=dict(color='#0A84FF', width=2), fillcolor='rgba(10,132,255,0.15)'
-        )
-    )
-    fig.update_layout(
-        template="simple_white", title=dict(text=title, font=dict(size=16)),
-        polar=dict(bgcolor='rgba(255,255,255,0)', radialaxis=dict(visible=True, range=[0, 10])),
-        paper_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=30, b=0), height=260
-    )
+    fig = go.Figure(go.Scatterpolar(r=list(data.values()), theta=list(data.keys()), fill='toself',
+                                    line=dict(color='#0A84FF', width=2), fillcolor='rgba(10,132,255,0.15)'))
+    fig.update_layout(template="simple_white", title=dict(text=title, font=dict(size=16)),
+                      polar=dict(bgcolor='rgba(255,255,255,0)', radialaxis=dict(visible=True, range=[0, 10])),
+                      paper_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=30, b=0), height=260)
     return fig
 
 # =========================
-# Research display (clean)
+# Research view
 # =========================
 def _render_paragraphs(title: str, content: str):
-    if not content:
-        return
+    if not content: return
     st.markdown(f"**{title}**")
     parts = [p.strip() for p in content.replace("\r\n", "\n").split("\n\n") if p.strip()]
     for p in parts:
@@ -138,15 +105,8 @@ def _render_paragraphs(title: str, content: str):
 
 def display_research(md: Dict[str, Any]):
     ext = md.get("external_research", {}) or {}
-    diags = (md.get("_diagnostics", {}) or {}).get("research", {}) if isinstance(md, dict) else {}
 
     section_heading("Research & Sources")
-
-    if SHOW_DEV_DIAGNOSTICS:
-        with st.expander("Developer diagnostics", expanded=False):
-            st.caption(f"Enabled: {diags.get('enabled', True)} | Cache hit: {diags.get('cache_hit', False)} | Last error: {diags.get('error','')}")
-            if isinstance(ext, dict) and "_diagnostics" in ext:
-                st.caption(f"Route: {ext['_diagnostics'].get('route','n/a')}")
 
     if "notice" in ext:
         st.info(ext["notice"]); return
@@ -154,8 +114,7 @@ def display_research(md: Dict[str, Any]):
         st.info("External research was unavailable. Please try again."); return
 
     if ext.get("summary"):
-        with card():
-            _render_paragraphs("Summary", ext["summary"])
+        with card(): _render_paragraphs("Summary", ext["summary"])
 
     sections = ext.get("sections", {}) or {}
     if sections:
@@ -166,12 +125,12 @@ def display_research(md: Dict[str, Any]):
             for k in left:
                 if sections.get(k):
                     with card():
-                        _render_paragraphs(k.replace("_", " ").title(), sections[k])
+                        _render_paragraphs(k.replace("_"," ").title(), sections[k])
         with colR:
             for k in right:
                 if sections.get(k):
                     with card():
-                        _render_paragraphs(k.replace("_", " ").title(), sections[k])
+                        _render_paragraphs(k.replace("_"," ").title(), sections[k])
 
     sources = ext.get("sources", []) or []
     if sources:
@@ -184,7 +143,7 @@ def display_research(md: Dict[str, Any]):
                 st.markdown(f"- [{i}] [{title}]({url}) — {snippet}{conf_str}")
 
 # =========================
-# PDF Quick Analysis — first page (compact)
+# PDF quick path
 # =========================
 def render_pdf_quick_analysis():
     section_heading("Quick Analysis From PDF", "Upload a deck and generate the full evaluation")
@@ -192,7 +151,6 @@ def render_pdf_quick_analysis():
     colx, coly = st.columns([3, 2], gap="small")
     comps_ticker = colx.text_input("Public Comps Ticker (optional)", "ZOMATO.BSE")
     run_clicked = coly.button("Run Analysis from PDF", use_container_width=True)
-
     if run_clicked:
         if uploaded is None:
             st.warning("Upload a PDF first.")
@@ -209,7 +167,7 @@ def render_pdf_quick_analysis():
                     st.error("We couldn't parse the PDF. Try another file.")
 
 # =========================
-# Profile + Metrics (wizard)
+# Wizard steps
 # =========================
 FOCUS_AREA_OPTIONS = {
     "Enhance Urban Lifestyle": ['E-commerce & D2C', 'Consumer Services', 'FinTech', 'PropTech', 'Logistics & Supply Chain', 'Travel & Hospitality', 'Media & Entertainment', 'Gaming'],
@@ -257,31 +215,90 @@ def render_company_profile_step() -> Dict[str, Any]:
         st.caption("Fill all required fields to continue.")
     return inputs
 
-def render_sector_specific_metrics(focus_area: str, sector: str) -> Dict[str, Any]:
-    extra: Dict[str, Any] = {}
-    st.markdown("**Sector-specific Metrics**")
-    if focus_area == "Enhance Urban Lifestyle":
-        if sector == "E-commerce & D2C":
-            c1, c2, c3 = st.columns(3, gap="small")
-            extra["aov_inr"] = c1.number_input("Avg Order Value (₹)", value=1200, min_value=0)
-            extra["monthly_orders"] = c2.number_input("Monthly Orders", value=25000, min_value=0)
-            extra["repeat_rate_pct"] = c3.number_input("Repeat Rate (%)", value=35.0, min_value=0.0, max_value=100.0)
-        elif sector == "FinTech":
-            c1, c2, c3 = st.columns(3, gap="small")
-            extra["take_rate_pct"] = c1.number_input("Take Rate (%)", value=1.5, min_value=0.0, max_value=100.0, step=0.1)
-            extra["transaction_volume_gmv"] = c2.number_input("Monthly GMV (₹)", value=1_000_000_000, min_value=0)
-            extra["delinquency_rate_pct"] = c3.number_input("Delinquency (%)", value=1.2, min_value=0.0, max_value=100.0, step=0.1)
-    elif focus_area == "Live Healthy":
-        c1, c2, c3 = st.columns(3, gap="small")
-        extra["regulatory_stage"] = c1.selectbox("Clinical Stage", ["None", "Pre-clinical", "Phase I/II", "Phase III", "Approved"], index=0)
-        extra["gross_retention_pct"] = c2.number_input("Gross Retention (%)", value=90.0, min_value=0.0, max_value=120.0, step=0.5)
-        extra["enterprise_sales_cycle_days"] = c3.number_input("Sales Cycle (days)", value=120, min_value=0, step=5)
-    elif focus_area == "Mitigate Climate Change":
-        c1, c2, c3 = st.columns(3, gap="small")
-        extra["trl_level"] = c1.slider("TRL (1-9)", min_value=1, max_value=9, value=6)
-        extra["capex_per_unit_inr"] = c2.number_input("CapEx / Unit (₹)", value=500000, min_value=0)
-        extra["opex_per_unit_inr"] = c3.number_input("OpEx / Unit (₹/mo)", value=5000, min_value=0)
-    return extra
+def render_ssq_deep_dive_inputs() -> Dict[str, Any]:
+    section_heading("Speed Scaling Deep‑Dive", "These factors feed the SSQ deep-dive score")
+    f: Dict[str, Any] = {}
+    # Market
+    st.markdown("**Market & Moat**")
+    c1, c2, c3, c4 = st.columns(4, gap="small")
+    f["maximum_market_size_usd"] = c1.number_input("Max Market Size (USD)", value=500_000_000, min_value=0)
+    f["market_growth_rate_pct"] = c2.number_input("Market Growth Rate (%)", value=25.0, min_value=-100.0, max_value=500.0, step=0.5)
+    f["economic_condition_index"] = c3.slider("Economic Condition (0–10)", 0.0, 10.0, 6.0, 0.1)
+    f["readiness_index"] = c4.slider("Readiness (0–10)", 0.0, 10.0, 7.0, 0.1)
+
+    c5, c6, c7, c8 = st.columns(4, gap="small")
+    f["originality_index"] = c5.slider("Originality (0–10)", 0.0, 10.0, 7.0, 0.1)
+    f["need_index"] = c6.slider("Need (0–10)", 0.0, 10.0, 8.0, 0.1)
+    f["testing_index"] = c7.slider("Testing (0–10)", 0.0, 10.0, 6.0, 0.1)
+    f["pmf_index"] = c8.slider("PMF (0–10)", 0.0, 10.0, 7.0, 0.1)
+
+    c9, c10, c11, c12 = st.columns(4, gap="small")
+    f["scalability_index"] = c9.slider("Scalability (0–10)", 0.0, 10.0, 7.0, 0.1)
+    f["technology_duplicacy_index"] = c10.slider("Tech Duplicacy (0–10)", 0.0, 10.0, 4.0, 0.1)
+    f["execution_duplicacy_index"] = c11.slider("Execution Duplicacy (0–10)", 0.0, 10.0, 4.0, 0.1)
+    f["first_mover_advantage_index"] = c12.slider("First Mover Advantage (0–10)", 0.0, 10.0, 6.0, 0.1)
+
+    c13, c14, c15, c16 = st.columns(4, gap="small")
+    f["barriers_to_entry_index"] = c13.slider("Barriers to Entry (0–10)", 0.0, 10.0, 6.0, 0.1)
+    f["num_close_competitors"] = c14.number_input("Close Competitors (count)", value=5, min_value=0)
+    f["price_advantage_pct"] = c15.number_input("Price Advantage (%)", value=10.0, min_value=-100.0, max_value=100.0, step=0.5)
+    f["channels_of_promotion"] = c16.number_input("Channels of Promotion (count)", value=3, min_value=0, max_value=25)
+
+    # GTM & Rev
+    st.markdown("**GTM & Revenue**")
+    g1, g2, g3, g4 = st.columns(4, gap="small")
+    f["mrr_inr"] = g1.number_input("MRR (₹)", value=6_000_000, min_value=0)
+    f["sales_growth_pct"] = g2.number_input("Sales Growth (YoY, %)", value=80.0, min_value=-100.0, max_value=1000.0, step=0.5)
+    f["lead_to_close_ratio_pct"] = g3.number_input("Lead→Close Ratio (%)", value=12.0, min_value=0.0, max_value=100.0, step=0.1)
+    f["marketing_spend_inr"] = g4.number_input("Marketing Spend / mo (₹)", value=2_000_000, min_value=0)
+
+    g5, g6, g7 = st.columns(3, gap="small")
+    f["ltv_cac_ratio"] = g5.slider("LTV:CAC", 0.1, 10.0, 3.5, 0.1)
+    f["customer_growth_pct"] = g6.number_input("Customer Growth (YoY, %)", value=100.0, min_value=-100.0, max_value=1000.0, step=0.5)
+    f["repurchase_ratio_pct"] = g7.number_input("Repurchase Ratio (%)", value=25.0, min_value=0.0, max_value=100.0, step=0.5)
+
+    # Team & ops
+    st.markdown("**Team & Ops**")
+    t1, t2, t3, t4 = st.columns(4, gap="small")
+    f["domain_experience_years"] = t1.number_input("Domain Experience (yrs)", value=6, min_value=0, max_value=40)
+    f["quality_of_experience_index"] = t2.slider("Quality of Experience (0–10)", 0.0, 10.0, 7.0, 0.1)
+    f["team_size"] = t3.number_input("Team Size", value=50, min_value=1)
+    f["avg_salary_inr"] = t4.number_input("Avg Salary / yr (₹)", value=1_500_000, min_value=0)
+
+    t5, t6, t7, t8 = st.columns(4, gap="small")
+    f["equity_dilution_pct"] = t5.number_input("Equity Dilution to Date (%)", value=22.0, min_value=0.0, max_value=100.0, step=0.5)
+    f["runway_months"] = t6.number_input("Runway (months)", value=12.0, min_value=0.0, max_value=120.0, step=0.5)
+    f["cac_inr"] = t7.number_input("CAC (₹)", value=8_000, min_value=0)
+    f["variance_analysis_index"] = t8.slider("Variance Analysis (0–10)", 0.0, 10.0, 6.0, 0.1)
+
+    # Finance
+    st.markdown("**Finance & Ratios**")
+    f1, f2, f3, f4 = st.columns(4, gap="small")
+    f["mrr_growth_rate_pct"] = f1.number_input("MRR Growth Rate (YoY, %)", value=90.0, min_value=-100.0, max_value=1000.0, step=0.5)
+    f["de_ratio"] = f2.number_input("D/E Ratio", value=0.2, min_value=0.0, max_value=10.0, step=0.05)
+    f["gpm_pct"] = f3.number_input("Gross Profit Margin (%)", value=60.0, min_value=-100.0, max_value=100.0, step=0.5)
+    f["nr_inr"] = f4.number_input("Net Revenue (₹)", value=120_000_000, min_value=0)
+
+    f5, f6, f7, f8 = st.columns(4, gap="small")
+    f["net_income_ratio_pct"] = f5.number_input("Net Income Ratio (%)", value=5.0, min_value=-200.0, max_value=200.0, step=0.5)
+    f["filed_patents"] = f6.number_input("Filed Patents (count)", value=2, min_value=0, max_value=200)
+    f["approved_patents"] = f7.number_input("Approved Patents (count)", value=0, min_value=0, max_value=200)
+    # Fundraise hook: total_funding_usd will be from Metrics step
+
+    return f
+
+def render_outcomes_section() -> Dict[str, Any]:
+    section_heading("Desired Outcomes from Investment", "Targets and milestones to bake into the IC memo")
+    outcomes: Dict[str, Any] = {}
+    c1, c2, c3 = st.columns(3, gap="small")
+    outcomes["target_arr_usd"] = c1.number_input("Target ARR (USD)", value=5_000_000, min_value=0)
+    outcomes["target_burn_multiple"] = c2.number_input("Target Burn Multiple", value=1.5, min_value=0.0, max_value=20.0, step=0.1)
+    outcomes["target_nrr_pct"] = c3.number_input("Target NRR (%)", value=115.0, min_value=0.0, max_value=500.0, step=0.5)
+    c4, c5, c6 = st.columns(3, gap="small")
+    outcomes["target_gm_pct"] = c4.number_input("Target Gross Margin (%)", value=70.0, min_value=-100.0, max_value=100.0, step=0.5)
+    outcomes["target_runway_months"] = c5.number_input("Target Runway (months)", value=18.0, min_value=0.0, max_value=120.0, step=0.5)
+    outcomes["milestones"] = c6.text_input("Top 3 Milestones (comma-separated)", "Marquee logos, New geography, Platform launch")
+    return outcomes
 
 def render_metrics_step(profile: Dict[str, Any]) -> Dict[str, Any]:
     section_heading("Step 2 — Metrics & Financials", "Quantitative context")
@@ -297,6 +314,15 @@ def render_metrics_step(profile: Dict[str, Any]) -> Dict[str, Any]:
     inputs['team_score'] = c5.slider("Execution (0-10)", 0.0, 10.0, 8.0)
     inputs['moat_score'] = c6.slider("Moat (0-10)", 0.0, 10.0, 7.0)
     inputs['investor_quality_score'] = c7.slider("Investor Quality (1-10)", 1.0, 10.0, 7.0)
+
+    # AI scoring options
+    st.markdown("**AI Scoring Options (subjectives)**")
+    a1, a2 = st.columns(2, gap="small")
+    inputs["ai_score_team_execution"] = a1.checkbox("Use AI to score Team Execution", value=False)
+    inputs["ai_score_investor_quality"] = a2.checkbox("Use AI to score Investor Quality", value=False)
+    e1, e2 = st.columns(2, gap="small")
+    inputs["team_ai_evidence"] = e1.text_area("Team Evidence (links, bios, achievements)", "", height=70)
+    inputs["investor_ai_evidence"] = e2.text_area("Investor Evidence (cap table, fund brands, track record)", "", height=70)
 
     c8, c9, c10 = st.columns(3, gap="small")
     inputs['ltv_cac_ratio'] = c8.slider("LTV:CAC", 0.1, 10.0, 3.5, 0.1)
@@ -322,8 +348,15 @@ def render_metrics_step(profile: Dict[str, Any]) -> Dict[str, Any]:
         st.error("Invalid web traffic. Use comma-separated numbers.")
         st.stop()
 
-    # Sector-specific
-    inputs.update(render_sector_specific_metrics(profile['focus_area'], profile['sector']))
+    # Valuation assist toggle
+    inputs["use_ai_valuation_assist"] = st.checkbox("Use AI to assist valuation multiples (sector/stage peers)", value=True)
+
+    # SSQ Deep-Dive data
+    inputs["ssq_deep_dive_factors"] = render_ssq_deep_dive_inputs()
+    inputs["use_ai_ssq_weights"] = st.checkbox("Use AI to weigh SSQ factors", value=True)
+
+    # Desired outcomes section
+    inputs["desired_outcomes"] = render_outcomes_section()
 
     # Comps ticker + actions
     col_back, col_ticker, col_run = st.columns([1, 2, 2], gap="small")
@@ -342,7 +375,7 @@ def render_metrics_step(profile: Dict[str, Any]) -> Dict[str, Any]:
     return inputs
 
 # =========================
-# Dashboards
+# Dashboards and analysis
 # =========================
 def memo_to_markdown(memo: Dict[str, Any]) -> str:
     lines = ["# Investment Memo"]
@@ -352,6 +385,9 @@ def memo_to_markdown(memo: Dict[str, Any]) -> str:
     for k in blocks:
         v = memo.get(k)
         if v: lines += [f"## {k.replace('_',' ').title()}", str(v)]
+    # Speed Scaling Deep-Dive
+    if memo.get("speed_scaling_deep_dive"):
+        lines += ["## Speed Scaling Deep-Dive", str(memo["speed_scaling_deep_dive"])]
     lines += ["## Bull Case", memo.get("bull_case_narrative",""), "## Bear Case", memo.get("bear_case_narrative",""),
               f"\nRecommendation: {memo.get('recommendation','')}, Conviction: {memo.get('conviction','')}"]
     return "\n\n".join([x for x in lines if x is not None])
@@ -402,7 +438,7 @@ def render_analysis_area(report):
     render_summary_dashboard(report)
     section_heading("Deep Dive")
 
-    tabs = st.tabs(["Investment Memo", "Risk & Simulation", "Research & Sources", "Inputs", "Forecast", "ML"])
+    tabs = st.tabs(["Investment Memo", "Risk & Simulation", "Research & Sources", "SSQ Deep‑Dive", "Inputs", "Forecast", "ML"])
     memo = report.get('investment_memo', {}) or {}
     sim_res = report.get('simulation', {}) or {}
     md = report.get('market_deep_dive', {}) or {}
@@ -434,16 +470,26 @@ def render_analysis_area(report):
         display_research(md)
 
     with tabs[3]:
-        st.json(st.session_state.get('inputs', {}))
+        st.markdown("### Speed Scaling Deep‑Dive")
+        deep = report.get("ssq_deep_dive", {}) or {}
+        if deep:
+            with card():
+                st.metric("SSQ Deep‑Dive Score", deep.get("ssq_deep_dive_score", 0))
+                st.caption(f"AI Adjustment: {deep.get('ai_adjustment', 0)}")
+            with st.expander("Per‑factor scores and weights", expanded=False):
+                st.json(deep)
 
     with tabs[4]:
+        st.json(st.session_state.get('inputs', {}))
+
+    with tabs[5]:
         forecast = report.get('fundraise_forecast', {}) or {}
         col1, col2, col3 = st.columns(3, gap="small")
         col1.metric("Round Likelihood (6m)", f"{forecast.get('round_likelihood_6m', 0.0):.1%}")
         col2.metric("Round Likelihood (12m)", f"{forecast.get('round_likelihood_12m', 0.0):.1%}")
         col3.metric("Time to Next Round", f"{forecast.get('expected_time_to_next_round_months', 0.0):.1f} months")
 
-    with tabs[5]:
+    with tabs[6]:
         ml = report.get("ml_predictions", {}) or {}
         online = ml.get("online", {}) or {}
         col1, col2, col3 = st.columns(3, gap="small")
@@ -453,15 +499,13 @@ def render_analysis_area(report):
         col3.metric("Next Valuation (USD)", f"${val:,.0f}" if isinstance(val, (int, float)) and val else "N/A")
 
 # =========================
-# Main (compact flow)
+# Main
 # =========================
 async def main():
     engine = load_engine()
 
     if st.session_state.view == 'input':
-        # Top: PDF quick analysis, then wizard steps
         render_pdf_quick_analysis()
-
         step_cols = st.columns(2, gap="small")
         step_cols[0].markdown("**1) Company Profile** ✅" if st.session_state.wizard_step == 1 else "**1) Company Profile**")
         step_cols[1].markdown("**2) Metrics & Financials**" + (" ✅" if st.session_state.wizard_step == 1 else ""))
@@ -472,7 +516,7 @@ async def main():
             render_metrics_step(st.session_state.get("profile_inputs", {}))
 
     elif st.session_state.view == 'analysis':
-        with st.spinner("Running research, building IC memo, and computing valuation..."):
+        with st.spinner("Running deep research, AI scoring, and valuation..."):
             try:
                 report = await engine.comprehensive_analysis(
                     st.session_state.inputs,
