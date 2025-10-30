@@ -113,6 +113,7 @@ def display_deep_dive_intel(data: Dict[str, Any]):
                     else:
                         st.markdown(f"**{sub_key.replace('_', ' ').title()}:** {value}")
             elif isinstance(content, list):
+                # Card per competitive item
                 for item in content:
                     if isinstance(item, dict):
                         with card():
@@ -126,35 +127,73 @@ def display_deep_dive_intel(data: Dict[str, Any]):
 def render_pdf_autorun_area():
     section_heading("📄 PDF Auto‑Analysis", "Upload a deck and generate the full evaluation automatically")
     with card():
-        uploaded = st.file_uploader("Upload a startup PDF deck", type=["pdf"])
+        uploaded = st.file_uploader("Upload a startup PDF deck", type=["pdf"], key="pdf_uploader")
         default_ticker = st.text_input("Optional: Public Comps Ticker", "ZOMATO.BSE", help="Used for the public comps lookup")
-        parse = st.button("🔎 Parse PDF")
-        if uploaded and parse:
-            with st.spinner("Extracting content and building inputs from PDF..."):
-                try:
-                    ingestor = PDFIngestor(st.secrets.get("GEMINI_API_KEY"))
-                    extracted = ingestor.extract(uploaded.read())
-                    # Preview extracted fields
-                    st.success("Parsed PDF successfully. Review extracted fields below.")
-                    prev_cols = st.columns(2)
-                    left_keys = ["company_name", "sector", "stage", "location", "focus_area", "founder_type", "team_size", "num_investors"]
-                    right_keys = ["arr", "burn", "cash", "ltv_cac_ratio", "gross_margin_pct", "monthly_churn_pct", "product_stage_score", "team_score"]
-                    with prev_cols[0]:
-                        for k in left_keys:
-                            st.write(f"• {k}: {extracted.get(k)}")
-                    with prev_cols[1]:
-                        for k in right_keys:
-                            st.write(f"• {k}: {extracted.get(k)}")
-                    with st.expander("Show all extracted fields"):
-                        st.json(extracted)
-                    # Offer to run
-                    if st.button("🚀 Run Analysis from PDF"):
-                        st.session_state.view = 'analysis'
-                        st.session_state.inputs = extracted
-                        st.session_state.comps_ticker = default_ticker
-                        st.experimental_rerun()
-                except Exception as e:
-                    st.error(f"Failed to parse PDF: {e}")
+
+        colp, colr, colc = st.columns([1, 1, 1])
+        with colp:
+            parse = st.button("🔎 Parse PDF", use_container_width=True, key="parse_pdf_btn")
+        with colr:
+            run_from_pdf = st.button(
+                "🚀 Run Analysis from PDF",
+                use_container_width=True,
+                key="run_pdf_btn",
+                disabled=("pdf_extracted_inputs" not in st.session_state)
+            )
+        with colc:
+            clear = st.button(
+                "🧹 Clear",
+                use_container_width=True,
+                key="clear_pdf_btn",
+                disabled=("pdf_extracted_inputs" not in st.session_state)
+            )
+
+        # Handle parse action
+        if parse:
+            if uploaded is None:
+                st.warning("Please upload a PDF first.")
+            else:
+                with st.spinner("Extracting content and building inputs from PDF..."):
+                    try:
+                        ingestor = PDFIngestor(st.secrets.get("GEMINI_API_KEY"))
+                        # Use getvalue() to avoid empty reads across reruns
+                        extracted = ingestor.extract(uploaded.getvalue())
+                        st.session_state["pdf_extracted_inputs"] = extracted
+                        st.session_state["pdf_extracted_ticker"] = default_ticker
+                        st.success("Parsed PDF successfully. Review extracted fields below.")
+                    except Exception as e:
+                        st.error(f"Failed to parse PDF: {e}")
+
+        # Handle clear action
+        if clear:
+            st.session_state.pop("pdf_extracted_inputs", None)
+            st.session_state.pop("pdf_extracted_ticker", None)
+            st.info("Cleared parsed PDF data.")
+
+        # Preview (persists across reruns)
+        if "pdf_extracted_inputs" in st.session_state:
+            extracted = st.session_state["pdf_extracted_inputs"]
+            prev_cols = st.columns(2)
+            left_keys = ["company_name", "sector", "stage", "location", "focus_area", "founder_type", "team_size", "num_investors"]
+            right_keys = ["arr", "burn", "cash", "ltv_cac_ratio", "gross_margin_pct", "monthly_churn_pct", "product_stage_score", "team_score"]
+            with prev_cols[0]:
+                for k in left_keys:
+                    st.write(f"• {k}: {extracted.get(k)}")
+            with prev_cols[1]:
+                for k in right_keys:
+                    st.write(f"• {k}: {extracted.get(k)}")
+            with st.expander("Show all extracted fields"):
+                st.json(extracted)
+
+        # Handle run action (outside parse branch so it fires reliably)
+        if run_from_pdf:
+            if "pdf_extracted_inputs" not in st.session_state:
+                st.warning("Please parse a PDF first.")
+            else:
+                st.session_state.view = 'analysis'
+                st.session_state.inputs = st.session_state["pdf_extracted_inputs"]
+                st.session_state.comps_ticker = default_ticker or st.session_state.get("pdf_extracted_ticker") or "ZOMATO.BSE"
+                st.rerun()
 
 def render_input_area():
     with card():
@@ -311,7 +350,7 @@ def render_analysis_area(report):
     c1, c2 = st.columns([3, 1])
     c1.header(f"Diagnostic Report: {company_name}")
     if c2.button("⬅️ New Analysis"):
-        keys_to_clear = ['report', 'inputs', 'comps_ticker']
+        keys_to_clear = ['report', 'inputs', 'comps_ticker', 'pdf_extracted_inputs', 'pdf_extracted_ticker']
         st.session_state.view = 'input'
         for key in keys_to_clear:
             if key in st.session_state:
