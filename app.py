@@ -1,7 +1,7 @@
 import os
 import logging
 import asyncio
-from typing import Dict, Any
+from typing import Dict, Any, List, Tuple
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -93,6 +93,15 @@ def create_spider_chart(data, title):
                       paper_bgcolor='rgba(255,255,255,0)', margin=dict(l=0, r=0, t=30, b=0), height=260)
     return fig
 
+def create_bar_chart(df: pd.DataFrame, title: str, x: str, y: str, color: str = "#0A84FF", height: int = 280):
+    if df.empty:
+        return go.Figure()
+    fig = go.Figure(go.Bar(x=df[x], y=df[y], marker_color=color))
+    fig.update_layout(template="simple_white", title=dict(text=title, font=dict(size=16)),
+                      xaxis=dict(title=x, tickangle=45), yaxis=dict(title=y),
+                      height=height, margin=dict(l=0, r=0, t=35, b=0), paper_bgcolor="rgba(0,0,0,0)")
+    return fig
+
 # =========================
 # Research view
 # =========================
@@ -148,7 +157,7 @@ def display_research(md: Dict[str, Any]):
 def render_pdf_quick_analysis():
     section_heading("Quick Analysis From PDF", "Upload a deck and generate the full evaluation")
     uploaded = st.file_uploader("Upload PDF deck", type=["pdf"], key="pdf_uploader_firstpage")
-    run_clicked = st.button("Run Analysis from PDF", use_container_width=True)
+    run_clicked = st.button("Run Analysis from PDF", use_container_width=True, key="pdf_run_btn")
     if run_clicked:
         if uploaded is None:
             st.warning("Upload a PDF first.")
@@ -369,6 +378,140 @@ def render_metrics_step(profile: Dict[str, Any]) -> Dict[str, Any]:
     return inputs
 
 # =========================
+# Deep Dive Tab (Founder + SSQ) — VC-grade content
+# =========================
+def _compute_contributions(deep: Dict[str, Any]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    per = (deep.get("per_factor_scores") or {})
+    weights = (deep.get("weights") or {})
+    rows: List[Dict[str, Any]] = []
+    for k, score in per.items():
+        w = float(weights.get(k, 0.0))
+        rows.append({"Factor": k, "Score (0–10)": float(score), "Weight": w, "Weighted": float(score) * w})
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    df = df.sort_values("Weighted", ascending=False).reset_index(drop=True)
+    strengths = df.head(10).copy()
+    watchouts = df.sort_values(["Score (0–10)", "Weighted"], ascending=[True, True]).head(10).copy()
+    return strengths, watchouts
+
+def render_deep_dive_tab(report: Dict[str, Any]):
+    deep = report.get("ssq_deep_dive", {}) or {}
+    ssq = report.get("ssq_report", {}) or {}
+    founder = report.get("founder_profile", {}) or {}
+    ai_diag = (report.get("ai_diagnostics", {}) or {}).get("subjectives", {}) or {}
+    desired = (st.session_state.get("inputs", {}) or {}).get("desired_outcomes", {}) or {}
+
+    section_heading("Deep Dive", "Founder signals, Speed Scaling factors, and target outcomes")
+
+    # Snapshot metrics
+    snap1, snap2, snap3, snap4 = st.columns(4, gap="small")
+    with snap1: st.metric("SSQ (Final)", ssq.get("ssq_score", "N/A"))
+    with snap2: st.metric("SSQ Deep‑Dive", deep.get("ssq_deep_dive_score", "N/A"))
+    with snap3: st.metric("Execution Signals (0–10)", founder.get("execution_signals", "N/A"))
+    with snap4: st.metric("Network Strength (0–10)", founder.get("network_strength", "N/A"))
+
+    # Founder profile details
+    with card():
+        st.markdown("### Founder Profile (LinkedIn + X)")
+        if founder:
+            st.write(founder.get("summary", ""))
+            cols = st.columns(4, gap="small")
+            cols[0].write(f"Experience: {founder.get('experience_years','N/A')} yrs")
+            cols[1].write(f"Leadership roles: {', '.join(founder.get('leadership_roles', [])[:3]) or 'N/A'}")
+            cols[2].write(f"Domain expertise: {', '.join(founder.get('domain_expertise', [])[:3]) or 'N/A'}")
+            cols[3].write(f"Functional expertise: {', '.join(founder.get('functional_expertise', [])[:3]) or 'N/A'}")
+
+            c1, c2 = st.columns(2, gap="small")
+            with c1:
+                exits = founder.get("exits", []) or []
+                if exits:
+                    st.markdown("**Exits**")
+                    for e in exits[:6]:
+                        st.write(f"- {e.get('company','')} — {e.get('type','')} {e.get('year','')}")
+                ach = founder.get("notable_achievements", []) or []
+                if ach:
+                    st.markdown("**Achievements**")
+                    for a in ach[:6]: st.write(f"- {a}")
+                fr = founder.get("fundraises_led", []) or []
+                if fr:
+                    st.markdown("**Fundraises Led**")
+                    for r in fr[:6]:
+                        st.write(f"- {r.get('company','')} {r.get('round','')} ${r.get('amount_usd',''):,}")
+            with c2:
+                edu = founder.get("education", []) or []
+                if edu:
+                    st.markdown("**Education**")
+                    for e in edu[:6]:
+                        st.write(f"- {e.get('school','')} — {e.get('degree','')} {e.get('year','')}")
+                risks = founder.get("risk_flags", []) or []
+                if risks:
+                    st.markdown("**Founder Risk Flags**")
+                    for r in risks[:8]: st.write(f"- {r}")
+            refs = founder.get("references", []) or []
+            if refs:
+                st.caption("References:")
+                st.write(", ".join(refs[:8]))
+            srcs = founder.get("sources", []) or []
+            if srcs:
+                st.markdown("**Founder Sources**")
+                for i, s in enumerate(srcs[:10], start=1):
+                    st.markdown(f"- [{i}] [{s.get('title','Source')}]({s.get('url','#')}) — {s.get('snippet','')}")
+        else:
+            st.info("No founder profile analysis available. Provide a LinkedIn URL in the Company Profile step.")
+
+    # SSQ Deep-Dive details
+    with card():
+        st.markdown("### Speed Scaling Deep‑Dive")
+        if deep and deep.get("per_factor_scores"):
+            strengths, watchouts = _compute_contributions(deep)
+            contrib_df = strengths.copy()
+            contrib_df["Factor"] = contrib_df["Factor"].astype(str)
+            st.plotly_chart(create_bar_chart(contrib_df, "Top Drivers (weighted)", x="Factor", y="Weighted", color="#0A84FF"), use_container_width=True, key="chart_top_drivers")
+            two = st.columns(2, gap="small")
+            with two[0]:
+                st.markdown("**Strengths (Top 10)**")
+                for _, row in strengths.iterrows():
+                    st.write(f"- {row['Factor']}: score {row['Score (0–10)']:.1f}, weight {row['Weight']:.3f}")
+            with two[1]:
+                st.markdown("**Watchouts (Bottom 10 by score)**")
+                for _, row in watchouts.iterrows():
+                    st.write(f"- {row['Factor']}: score {row['Score (0–10)']:.1f}, weight {row['Weight']:.3f}")
+
+            with st.expander("Per‑factor scores and weights (full)"):
+                st.dataframe(pd.DataFrame({
+                    "Factor": list((deep.get("per_factor_scores") or {}).keys()),
+                    "Score (0–10)": list((deep.get("per_factor_scores") or {}).values()),
+                    "Weight": [ (deep.get("weights") or {}).get(k, 0.0) for k in (deep.get("per_factor_scores") or {}).keys() ]
+                }).sort_values("Weight", ascending=False), use_container_width=True)
+            st.caption(f"AI Adjustment applied to SSQ deep-dive: {deep.get('ai_adjustment', 0)}")
+        else:
+            st.info("Deep-dive factors were not provided. Fill in the 'Speed Scaling Deep‑Dive' inputs before running analysis.")
+
+    # AI subjective rationale (if used)
+    if ai_diag and (ai_diag.get("rationale") or ai_diag.get("red_flags")):
+        with card():
+            st.markdown("### AI Subjective Assessment")
+            if ai_diag.get("rationale"):
+                st.write(ai_diag["rationale"])
+            if ai_diag.get("red_flags"):
+                st.markdown("**Subjective Red Flags**")
+                st.write(ai_diag["red_flags"])
+
+    # Desired outcomes summary
+    if desired:
+        with card():
+            st.markdown("### Desired Outcomes (next 12–18 months)")
+            c1, c2, c3, c4, c5 = st.columns(5, gap="small")
+            c1.metric("Target ARR (USD)", f"${desired.get('target_arr_usd', 0):,.0f}")
+            c2.metric("Target Burn Multiple", desired.get("target_burn_multiple", "—"))
+            c3.metric("Target NRR (%)", desired.get("target_nrr_pct", "—"))
+            c4.metric("Target GM (%)", desired.get("target_gm_pct", "—"))
+            c5.metric("Runway (months)", desired.get("target_runway_months", "—"))
+            if desired.get("milestones"):
+                st.caption(f"Milestones: {desired.get('milestones')}")
+
+# =========================
 # Dashboards and analysis
 # =========================
 def memo_to_markdown(memo: Dict[str, Any]) -> str:
@@ -421,7 +564,7 @@ def render_analysis_area(report):
     company_name = getattr(prof, 'company_name', 'Company') if prof else 'Company'
     header_cols = st.columns([3, 1], gap="small")
     header_cols[0].markdown(f"## Diagnostic Report: {company_name}")
-    if header_cols[1].button("New Analysis", use_container_width=True):
+    if header_cols[1].button("New Analysis", use_container_width=True, key="new_analysis_btn"):
         keys_to_clear = ['report', 'inputs', 'wizard_step', 'profile_inputs']
         st.session_state.view = 'input'
         for k in keys_to_clear:
@@ -429,16 +572,15 @@ def render_analysis_area(report):
         st.rerun()
 
     render_summary_dashboard(report)
-    section_heading("Deep Dive")
 
-    tabs = st.tabs(["Investment Memo", "Risk & Simulation", "Research & Sources", "Founder Profile", "SSQ Deep‑Dive", "Inputs", "Forecast", "ML"])
+    # Tabs: consolidate the "Deep Dive" content into one powerful tab
+    tabs = st.tabs(["Investment Memo", "Deep Dive", "Research & Sources", "Inputs", "Forecast", "ML"])
     memo = report.get('investment_memo', {}) or {}
     sim_res = report.get('simulation', {}) or {}
     md = report.get('market_deep_dive', {}) or {}
-    founder_prof = report.get('founder_profile', {}) or {}
 
     with tabs[0]:
-        st.markdown("### Executive Summary")
+        section_heading("Investment Memo")
         with card(): st.markdown(memo.get('executive_summary', 'Not available.'), unsafe_allow_html=True)
         with st.expander("Full memo"):
             cols = st.columns(2, gap="small")
@@ -448,56 +590,30 @@ def render_analysis_area(report):
                     with cols[i % 2]:
                         st.markdown(f"**{k.replace('_',' ').title()}**")
                         st.write(memo[k])
-        st.download_button("Download Memo (Markdown)", data=memo_to_markdown(memo), file_name=f"{company_name}_Investment_Memo.md", mime="text/markdown")
+        st.download_button("Download Memo (Markdown)", data=memo_to_markdown(memo), file_name=f"{company_name}_Investment_Memo.md", mime="text/markdown", key="memo_dl_btn")
 
-    with tabs[1]:
-        cols = st.columns([1,1], gap="small")
-        with cols[0]:
-            st.plotly_chart(create_spider_chart(report.get('risk_matrix', {}), "Risk Profile"), use_container_width=True)
-        with cols[1]:
-            st.markdown("### Financial Runway")
-            st.info(sim_res.get('narrative_summary', 'Simulation not available.'))
+        # Runway chart within memo tab for quick view
+        with st.expander("Financial Runway (quick view)"):
             ts = sim_res.get('time_series_data', pd.DataFrame())
             if not ts.empty: st.line_chart(ts.set_index('Month'))
+
+    with tabs[1]:
+        render_deep_dive_tab(report)
 
     with tabs[2]:
         display_research(md)
 
     with tabs[3]:
-        st.markdown("### Founder Profile (LinkedIn + X)")
-        if founder_prof:
-            with card():
-                st.write(founder_prof.get("summary", ""))
-                c1, c2, c3 = st.columns(3, gap="small")
-                c1.metric("Experience (yrs)", founder_prof.get("experience_years", "N/A"))
-                c2.metric("Network Strength (0–10)", founder_prof.get("network_strength", "N/A"))
-                c3.metric("Execution Signals (0–10)", founder_prof.get("execution_signals", "N/A"))
-            with st.expander("Details"):
-                st.json(founder_prof)
-        else:
-            st.info("No founder profile analysis available. Provide a LinkedIn URL in the Company Profile step.")
-
-    with tabs[4]:
-        st.markdown("### Speed Scaling Deep‑Dive")
-        deep = report.get("ssq_deep_dive", {}) or {}
-        if deep:
-            with card():
-                st.metric("SSQ Deep‑Dive Score", deep.get("ssq_deep_dive_score", 0))
-                st.caption(f"AI Adjustment: {deep.get('ai_adjustment', 0)}")
-            with st.expander("Per‑factor scores and weights", expanded=False):
-                st.json(deep)
-
-    with tabs[5]:
         st.json(st.session_state.get('inputs', {}))
 
-    with tabs[6]:
+    with tabs[4]:
         forecast = report.get('fundraise_forecast', {}) or {}
         col1, col2, col3 = st.columns(3, gap="small")
         col1.metric("Round Likelihood (6m)", f"{forecast.get('round_likelihood_6m', 0.0):.1%}")
         col2.metric("Round Likelihood (12m)", f"{forecast.get('round_likelihood_12m', 0.0):.1%}")
         col3.metric("Time to Next Round", f"{forecast.get('expected_time_to_next_round_months', 0.0):.1f} months")
 
-    with tabs[7]:
+    with tabs[5]:
         ml = report.get("ml_predictions", {}) or {}
         online = ml.get("online", {}) or {}
         col1, col2, col3 = st.columns(3, gap="small")
@@ -535,7 +651,7 @@ async def main():
             except Exception as e:
                 st.error("Analysis failed. Please try again.")
                 logging.error("Analysis failed", exc_info=True)
-                if st.button("Try Again"):
+                if st.button("Try Again", key="try_again_btn"):
                     st.session_state.view = 'input'
                     st.rerun()
 
