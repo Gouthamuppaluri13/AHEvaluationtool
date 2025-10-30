@@ -40,7 +40,6 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
             --focus: 0 0 0 3px rgba(10,132,255,0.25);
           }
 
-          /* Soft spotlight background */
           [data-testid="stAppViewContainer"] {
             background:
               radial-gradient(900px 500px at 10% -10%, rgba(10,132,255,0.10), transparent 60%),
@@ -57,14 +56,19 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
             font-size: 16px;
             line-height: 1.55;
           }
-          h1, h2, h3 { font-weight: 700; letter-spacing: .1px; color: var(--ink); margin: 0 0 10px 0; }
-          h1 { font-size: 40px; } h2 { font-size: 28px; } h3 { font-size: 20px; }
+          h1, h2, h3 {
+            font-weight: 700;
+            letter-spacing: .1px;
+            margin: 0 0 10px 0;
+            color: var(--ink);
+          }
+          h1 { font-size: 40px; }
+          h2 { font-size: 28px; }
+          h3 { font-size: 20px; }
           code, .mono, [data-testid="stMetricValue"] { font-family: var(--font-mono) !important; }
 
-          /* Content spacing */
           .main .block-container { padding: 28px 42px 60px 42px; }
 
-          /* Glass card */
           .card {
             background: var(--glass);
             border: 1px solid var(--glass-border);
@@ -73,11 +77,10 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
             border-radius: var(--radius-lg);
             box-shadow: var(--shadow);
             padding: 22px 22px;
-            overflow: hidden; /* prevents dark corners */
+            overflow: hidden;
           }
           .card + .card { margin-top: 18px; }
 
-          /* Hero */
           .app-hero {
             border-radius: 22px;
             background: var(--glass-strong);
@@ -95,7 +98,6 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
           }
           .app-hero__subtitle { color: var(--ink-dim); font-size: 18px; margin: 0; }
 
-          /* Tabs → glass pills */
           [data-baseweb="tab-list"] { gap: 8px; }
           [data-baseweb="tab"] {
             background: rgba(255,255,255,0.72);
@@ -112,7 +114,6 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
             box-shadow: 0 8px 20px rgba(10,132,255,0.12);
           }
 
-          /* Buttons */
           .stButton > button {
             background: rgba(255,255,255,0.78);
             border: 1px solid var(--glass-border);
@@ -129,7 +130,6 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
           }
           .stButton > button:focus { outline: none !important; box-shadow: var(--focus) !important; }
 
-          /* Inputs (text/number/textarea) */
           .stTextInput input, .stNumberInput input, .stTextArea textarea {
             background: var(--glass-field) !important;
             border: 1px solid var(--glass-border) !important;
@@ -143,11 +143,8 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
             outline: none !important; border-color: rgba(10,132,255,0.75) !important; box-shadow: var(--focus) !important;
           }
 
-          /* Selectbox — fix dark dropdowns and corner bleed */
-          /* 1) Reset container layers to avoid dark padding around corners */
+          /* Selectbox fix: visible text, frosted backgrounds, no corner bleed */
           .stSelectbox > div { background: transparent !important; border: none !important; padding: 0 !important; border-radius: 12px !important; overflow: hidden !important; }
-
-          /* 2) Visible closed control */
           .stSelectbox div[data-baseweb="select"] > div:first-child,
           .stSelectbox div[role="combobox"] {
             background: var(--glass-field) !important;
@@ -160,12 +157,8 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
           .stSelectbox div[role="combobox"]:focus-within {
             outline: none !important; border-color: rgba(10,132,255,0.75) !important; box-shadow: var(--focus) !important;
           }
-
-          /* 3) Text and chevron color inside the control */
           .stSelectbox * { color: var(--ink) !important; }
           .stSelectbox svg, .stSelectbox svg path { stroke: var(--ink) !important; fill: var(--ink) !important; }
-
-          /* 4) Open menu surface */
           .stSelectbox [data-baseweb="popover"] [data-baseweb="menu"] {
             background: var(--glass-menu) !important;
             border: 1px solid var(--glass-border) !important;
@@ -176,18 +169,12 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
             overflow: hidden !important;
           }
           .stSelectbox [data-baseweb="menu"] [role="option"] { color: var(--ink) !important; }
-          .stSelectbox [data-baseweb="menu"] [role="option"]:hover {
-            background: rgba(10,132,255,0.08) !important;
-          }
-          .stSelectbox [data-baseweb="menu"] [role="option"][aria-selected="true"] {
-            background: rgba(10,132,255,0.14) !important; color: var(--ink) !important;
-          }
+          .stSelectbox [data-baseweb="menu"] [role="option"]:hover { background: rgba(10,132,255,0.08) !important; }
+          .stSelectbox [data-baseweb="menu"] [role="option"][aria-selected="true"] { background: rgba(10,132,255,0.14) !important; color: var(--ink) !important; }
 
-          /* Slider thumb/track */
           .stSlider > div [role="slider"] { background: var(--accent) !important; box-shadow: 0 0 0 3px rgba(10,132,255,0.15) !important; }
           .stSlider > div [data-baseweb="slider"]>div { background: linear-gradient(90deg, rgba(10,132,255,0.25), rgba(100,210,255,0.25)) !important; }
 
-          /* Metrics */
           [data-testid="stMetric"] {
             background: rgba(255,255,255,0.6);
             border: 1px solid var(--glass-border);
@@ -199,7 +186,6 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
           [data-testid="stMetricLabel"] { color: var(--ink-dim); font-size: 13px; }
           [data-testid="stMetricValue"] { font-size: 28px; color: var(--ink); }
 
-          /* Expanders, tables, uploader */
           details[data-testid="stExpander"],
           .stDataFrame, .stTable,
           [data-testid="stFileUploader"] section {
@@ -211,7 +197,6 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
             box-shadow: var(--shadow-soft);
           }
 
-          /* Recommendation card */
           .recommendation-card {
             background: rgba(255,255,255,0.6);
             border: 1px solid var(--glass-border);
@@ -221,11 +206,11 @@ def apply_theme(page_title: str = "Startup Evaluator", page_icon: str | None = "
           }
           .recommendation-card h2 { font-size: 28px; margin: 0 0 8px 0; }
           .recommendation-card p { color: var(--ink-dim); margin: 0; font-family: var(--font-mono) !important; }
+
           .high-conviction { border-left: 6px solid var(--ok); }
           .medium-conviction { border-left: 6px solid var(--warn); }
           .low-conviction { border-left: 6px solid var(--bad); }
 
-          /* Section rule */
           .section { padding: 10px 0 4px 0; border-top: 1px solid var(--line); margin-top: 18px; }
         </style>
         """,
