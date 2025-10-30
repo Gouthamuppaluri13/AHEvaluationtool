@@ -9,13 +9,13 @@ from typing import Dict, Any
 
 from next_gen_vc_engine import NextGenVCEngine, FocusArea, FounderPersonality, AdvancedStartupProfile
 from ui_theme import apply_theme, hero, section_heading, card  # Glass theme
-from services.pdf_ingest import PDFIngestor  # NEW
+from services.pdf_ingest import PDFIngestor  # PDF auto-parse (optional)
 
 # Apply Apple-like glass theme
 apply_theme(page_title="Anthill AI+ Evaluation", page_icon="🦅")
 
-# Map Streamlit secrets into env for ModelRegistry
-for k in ["HUGGINGFACE_MODEL_ID", "MODEL_ARTIFACT_NAME", "MODEL_ASSET_URL"]:
+# Map optional secrets into env (used by dependencies)
+for k in ["HUGGINGFACE_MODEL_ID", "MODEL_ARTIFACT_NAME", "MODEL_ASSET_URL", "FX_INR_PER_USD"]:
     try:
         val = st.secrets.get(k)
         if val:
@@ -26,13 +26,18 @@ for k in ["HUGGINGFACE_MODEL_ID", "MODEL_ARTIFACT_NAME", "MODEL_ASSET_URL"]:
 # Hero
 hero(
     "Anthill AI+ Evaluation",
-    "Minimal, elegant, glass‑themed VC copilot."
+    "Minimal, elegant, glass‑themed VC copilot. Now powered by Grok for deep‑dives."
 )
 
 @st.cache_resource
 def load_engine():
     try:
-        engine = NextGenVCEngine(st.secrets["TAVILY_API_KEY"], st.secrets["ALPHA_VANTAGE_KEY"], st.secrets["GEMINI_API_KEY"])
+        engine = NextGenVCEngine(
+            st.secrets.get("TAVILY_API_KEY"),
+            st.secrets.get("ALPHA_VANTAGE_KEY"),
+            None,  # Gemini disabled
+            st.secrets.get("GROK_API_KEY"),  # Grok key
+        )
         return engine
     except Exception as e:
         st.error(f"🔴 CRITICAL ERROR: Could not initialize engine. Check API keys and model files. Details: {e}")
@@ -92,36 +97,63 @@ def display_deep_dive_intel(data: Dict[str, Any]):
     if not isinstance(data, dict) or "error" in data:
         st.error(data.get("error", "Market analysis data is not available."))
         return
-    key_map = {
-        "total_addressable_market": "🎯 Total Addressable Market",
-        "competitive_landscape": "⚔️ Competitive Landscape",
-        "moat_analysis": "🏰 Moat Analysis",
-        "valuation_trends": "💹 Valuation Trends",
-        "regulatory_outlook": "📜 Regulatory Outlook",
-        "supply_demand_dynamics": "⚖️ Supply vs Demand"
-    }
-    for key, title in key_map.items():
-        if key in data:
-            st.markdown(f"<h3>{title}</h3>", unsafe_allow_html=True)
-            content = data[key]
-            if isinstance(content, dict):
-                for sub_key, value in content.items():
-                    if isinstance(value, list):
-                        st.markdown(f"**{sub_key.replace('_', ' ').title()}:**")
-                        for item in value:
-                            st.markdown(f"- {item}")
-                    else:
-                        st.markdown(f"**{sub_key.replace('_', ' ').title()}:** {value}")
-            elif isinstance(content, list):
-                for item in content:
-                    if isinstance(item, dict):
-                        with card():
-                            st.markdown(f"**{item.get('name', 'N/A')}** ({item.get('estimated_market_share', 'N/A')} Share)")
-                            for sub_key, value in item.items():
-                                if sub_key not in ('name', 'estimated_market_share'):
-                                    st.markdown(f"**{sub_key.replace('_', ' ').title()}:** {value}")
+
+    # Grok-powered research (primary)
+    grok = data.get("grok_research", {}) or {}
+    st.subheader("🛰️ Grok Research (X + Web Deep Dive)")
+    if "notice" in grok:
+        st.info(grok["notice"])
+    elif "error" in grok:
+        st.warning(grok["error"])
+    else:
+        if grok.get("summary"):
+            with card():
+                st.write(grok["summary"])
+        sections = grok.get("sections", {}) or {}
+        if sections:
+            colL, colR = st.columns(2)
+            left_keys = ["overview", "products", "business_model", "funding", "investors", "leadership", "traction", "customers"]
+            right_keys = ["competitors", "moat", "partnerships", "risks", "regulatory", "controversies", "hiring", "tech_stack"]
+            with colL:
+                for k in left_keys:
+                    if sections.get(k):
+                        st.markdown(f"**{k.replace('_', ' ').title()}**")
+                        st.write(sections[k])
+            with colR:
+                for k in right_keys:
+                    if sections.get(k):
+                        st.markdown(f"**{k.replace('_', ' ').title()}**")
+                        st.write(sections[k])
+        sources = grok.get("sources", []) or []
+        if sources:
+            st.markdown("**Citations**")
+            for s in sources[:20]:
+                title = s.get("title", "Source")
+                url = s.get("url", "#")
+                snippet = s.get("snippet", "")
+                conf = s.get("confidence", None)
+                conf_str = f" (confidence {conf:.2f})" if isinstance(conf, (int, float)) else ""
+                st.markdown(f"- [{title}]({url}) — {snippet}{conf_str}")
+
+    # Optional: auxiliary enrichment if present
+    for key, title in {
+        "indian_funding_trends": "🇮🇳 Funding Trends (Web)",
+        "recent_news": "🗞️ Recent News",
+        "india_funding_dataset_context": "📊 India Funding Dataset Context (Kaggle)",
+    }.items():
+        content = data.get(key)
+        if content:
+            st.markdown("---")
+            st.subheader(title)
+            if key == "recent_news":
+                news = content.get("news", [])
+                if news:
+                    for n in news[:10]:
+                        st.markdown(f"- [{n.get('title','(untitled)')}]({n.get('url','#')}) — {n.get('published_date','')}")
+                else:
+                    st.info("No recent news available.")
             else:
-                st.markdown(str(content))
+                st.json(content)
 
 def render_pdf_autorun_area():
     section_heading("📄 PDF Auto‑Analysis", "Upload a deck and generate the full evaluation automatically")
@@ -145,8 +177,8 @@ def render_pdf_autorun_area():
             else:
                 with st.spinner("Extracting content and building inputs from PDF..."):
                     try:
-                        ingestor = PDFIngestor(st.secrets.get("GEMINI_API_KEY"))
-                        extracted = ingestor.extract(uploaded.getvalue())
+                        ingestor = PDFIngestor(st.secrets.get("GEMINI_API_KEY"))  # LLM optional; regex fallback works
+                        extracted = ingestor.extract(uploaded.getvalue(), file_name=getattr(uploaded, "name", None))
                         st.session_state["pdf_extracted_inputs"] = extracted
                         st.session_state["pdf_extracted_ticker"] = default_ticker
                         st.success("Parsed PDF successfully. Review extracted fields below.")
@@ -305,7 +337,7 @@ def render_summary_dashboard(report):
         with col1:
             st.markdown(
                 f'<div class="recommendation-card {conviction.lower()}-conviction">'
-                f'<h2>{rec_icon} {memo.get("recommendation", "Error")}</h2>'
+                f'<h2>{rec_icon} {memo.get("recommendation", "Watchlist")}</h2>'
                 f'<p>Conviction: {conviction}</p></div>',
                 unsafe_allow_html=True
             )
@@ -409,47 +441,7 @@ def render_analysis_area(report):
             elif comps:
                 st.metric(label=f"Company: {comps.get('Company')}", value=comps.get('Price (₹)'), delta=f"Exchange: {comps.get('Market', 'N/A')}")
             else:
-                st.warning("No public comparable data available.")
-
-        st.markdown("---")
-        with card():
-            st.subheader("Funding Trends (India) — Web News")
-            trends = report.get('market_deep_dive', {}).get('indian_funding_trends', {})
-            if trends:
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Median Round (INR)", f"₹ {trends.get('median_round_size_inr', 0):,.0f}" if trends.get('median_round_size_inr') else "N/A")
-                c2.metric("Total Rounds Parsed", sum(trends.get('round_counts_by_stage', {}).values()))
-                c3.metric("Distinct Top Investors", len(trends.get('top_investors', [])))
-                st.json(trends.get('round_counts_by_stage', {}))
-            else:
-                st.info("No India funding trend data.")
-
-        st.markdown("---")
-        with card():
-            st.subheader("Recent News")
-            news = report.get('market_deep_dive', {}).get('recent_news', {}).get('news', [])
-            if news:
-                for n in news[:8]:
-                    st.markdown(f"- [{n.get('title','(untitled)')}]({n.get('url','#')}) — {n.get('published_date','')}")
-            else:
-                st.info("No recent news available.")
-
-        st.markdown("---")
-        with card():
-            st.subheader("India Funding Dataset Context (Kaggle)")
-            india_ctx = report.get('market_deep_dive', {}).get('india_funding_dataset_context', {})
-            if india_ctx:
-                c1, c2 = st.columns(2)
-                c1.metric("Median Round (INR)", f"₹ {india_ctx.get('median_amount_inr', 0):,.0f}" if india_ctx.get('median_amount_inr') else "N/A")
-                c2.metric("Total Rounds (Dataset)", f"{india_ctx.get('rounds_total', 0):,}")
-                st.caption("Top Investors:")
-                invs = india_ctx.get("top_investors", [])[:12]
-                if invs:
-                    st.write(", ".join(i["name"] for i in invs))
-                st.caption("Yearly Rounds:")
-                st.json(india_ctx.get("yearly_rounds", [])[-10:])
-            else:
-                st.info("Kaggle-based India funding context not built yet. Run build_india_funding_context.py to generate data/india_funding_index.json.")
+                st.info("No public comparable data available.")
 
     with tab4:
         with card():
@@ -478,38 +470,6 @@ def render_analysis_area(report):
             val = online.get("predicted_valuation_usd", None)
             c3.metric("Predicted Next Valuation (USD, online)", f"${val:,.0f}" if isinstance(val, (int, float)) and val else "N/A")
 
-            st.caption(f"Model source: {online.get('meta', {}).get('source', 'unknown')}; AUC: {online.get('meta', {}).get('auc', 'n/a')}")
-            imps = online.get("feature_importances", [])
-            if imps:
-                import plotly.express as px
-                df_imp = pd.DataFrame(imps).sort_values("importance", ascending=True).tail(20)
-                fig = px.bar(
-                    df_imp,
-                    x="importance",
-                    y="feature",
-                    orientation="h",
-                    template="simple_white",
-                    color_discrete_sequence=["#0A84FF"]
-                )
-                fig.update_layout(
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    font=dict(color="#0F172A"),
-                    xaxis_title="Importance",
-                    yaxis_title="",
-                    margin=dict(l=10, r=10, t=10, b=10)
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("No feature importance data available from the online model.")
-
-            st.markdown("---")
-            st.subheader("Legacy Hybrid Model (fallback)")
-            c4, c5 = st.columns(2)
-            c4.metric("Success Probability (legacy)", f"{legacy.get('success_probability', 0.0):.1%}")
-            v2 = legacy.get("predicted_next_valuation_usd", None)
-            c5.metric("Predicted Next Valuation (USD, legacy)", f"${v2:,.0f}" if isinstance(v2, (int, float)) and v2 else "N/A")
-
 async def main():
     if 'view' not in st.session_state:
         st.session_state.view = 'input'
@@ -517,7 +477,7 @@ async def main():
     if st.session_state.view == 'input':
         render_input_area()
     elif st.session_state.view == 'analysis':
-        with st.spinner("Calculating Speedscaling Quotient... Performing market deep-dive... Generating investment memo..."):
+        with st.spinner("Calculating SSQ... Running Grok deep‑dive across X and the web... Building memo..."):
             try:
                 report = await engine.comprehensive_analysis(st.session_state.inputs, st.session_state.comps_ticker)
                 st.session_state.report = report
