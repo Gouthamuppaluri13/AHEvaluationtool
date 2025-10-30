@@ -1,15 +1,14 @@
 """
-VC engine with research-amplified IC memo and calibrated valuation/probability.
-- DeepResearchService (internally Grok-compatible) powers deep-dive + memo generation/refinement.
-- Deterministic valuation: stage/sector bands + SSQ, growth, margin, retention, burn efficiency, FX-normalized ARR.
+VC engine with research-amplified IC memo, AI-scored subjectives, valuation assist, and Speed Scaling Deep-Dive.
+- DeepResearchService powers: research, memo refinement, AI subjective scoring, valuation assist, SSQ insights.
+- Deterministic valuation: stage/sector bands + SSQ, growth, margin, retention, burn efficiency, FX-normalized ARR, blended with AI suggested multiples.
 - Probability: logistic over SSQ, burn multiple, churn, Rule of 40, and stage.
-- Research cache with TTL to reduce repeat API calls.
+- SSQ Deep-Dive: compute per-factor scores and overall, include in memo.
 """
 
 import logging
 import os
 import math
-import time
 import asyncio
 from dataclasses import dataclass
 from enum import Enum
@@ -25,7 +24,7 @@ except Exception:
     TimeSeries = None  # type: ignore
     HAS_ALPHA = False
 
-# Optional dependencies/services (guarded)
+# Optional services (guarded)
 try:
     from services.model_registry import ModelRegistry  # type: ignore
 except Exception:
@@ -42,7 +41,7 @@ try:
     from services.data_enrichment import DataEnrichmentService  # type: ignore
 except Exception:
     DataEnrichmentService = None  # type: ignore
-# Deep research (provider-agnostic; UI is neutral)
+# Deep research
 try:
     from services.deep_research import DeepResearchService  # type: ignore
 except Exception:
@@ -133,6 +132,147 @@ class SpeedscaleQuotientCalculator:
         return {"ssq_score": round(ssq, 1), "momentum": round(m, 1), "efficiency": round(e, 1), "scalability": round(s, 1)}
 
 
+class SSQDeepDiveCalculator:
+    """
+    Compute per-factor scores (0–10) and overall deep SSQ from detailed inputs.
+    """
+    # Default weights across categories; can be optionally adjusted by AI insights
+    BASE_WEIGHTS = {
+        "Maximum Market Size": 0.04,
+        "Market Growth Rate": 0.04,
+        "Economic Condition": 0.02,
+        "Readiness": 0.03,
+        "Originality": 0.03,
+        "Need": 0.03,
+        "Testing": 0.02,
+        "Product - Market Fit": 0.06,
+        "Scalability": 0.05,
+        "Technology Duplicacy": 0.03,   # lower duplicacy -> higher score
+        "Execution Duplicacy": 0.03,    # lower duplicacy -> higher score
+        "First Mover Advantage": 0.03,
+        "Barriers to Entry": 0.03,
+        "Number of Close Competitors": 0.03,  # fewer -> higher score
+        "Percentage Price Advantage": 0.03,
+        "Monthly Recurring Revenue": 0.05,
+        "Sales Growth": 0.04,
+        "Lead to Close Ratio": 0.03,
+        "Channels of Promotion": 0.02,
+        "Marketing Expenditure": 0.02,  # lower spend per $MRR -> higher score
+        "LTV/CAC": 0.05,
+        "Customer Growth": 0.03,
+        "Repurchase Ratio": 0.03,
+        "Experience with Domain": 0.02,
+        "Quality of Experience in Domain": 0.03,
+        "Size": 0.01,
+        "Salaries": 0.01,               # lower cost for same output -> higher score
+        "Fundraise": 0.02,
+        "Equity Dilution": 0.02,        # lower dilution -> higher score
+        "Runway": 0.03,
+        "CAC": 0.03,                    # lower CAC -> higher score
+        "Variance Analysis": 0.02,      # stable performance -> higher score
+        "MRR Growth Rate": 0.04,
+        "D/E Ratio": 0.02,              # lower -> safer
+        "GPM": 0.04,
+        "NR": 0.02,
+        "Net Income Ratio": 0.02,
+        "Filed Patents": 0.02,
+        "Approved Patents": 0.03,
+    }
+
+    def __init__(self, inputs: Dict[str, Any]):
+        self.i = inputs
+
+    @staticmethod
+    def _nz(v, d=0.0) -> float:
+        try:
+            return float(v)
+        except Exception:
+            return float(d)
+
+    @staticmethod
+    def _clamp01(x: float) -> float:
+        return max(0.0, min(1.0, x))
+
+    def _score(self) -> Dict[str, float]:
+        i = self.i
+        s: Dict[str, float] = {}
+        # Normalize to 0..1 then map to 0..10
+        s["Maximum Market Size"] = self._clamp01(self._nz(i.get("maximum_market_size_usd"), 0) / 1_000_000_000) * 10.0  # cap at $1B for normalization
+        s["Market Growth Rate"] = self._clamp01(self._nz(i.get("market_growth_rate_pct"), 0) / 100.0) * 10.0
+        s["Economic Condition"] = self._clamp01(self._nz(i.get("economic_condition_index"), 5) / 10.0) * 10.0
+        s["Readiness"] = self._clamp01(self._nz(i.get("readiness_index"), 5) / 10.0) * 10.0
+        s["Originality"] = self._clamp01(self._nz(i.get("originality_index"), 5) / 10.0) * 10.0
+        s["Need"] = self._clamp01(self._nz(i.get("need_index"), 5) / 10.0) * 10.0
+        s["Testing"] = self._clamp01(self._nz(i.get("testing_index"), 5) / 10.0) * 10.0
+        s["Product - Market Fit"] = self._clamp01(self._nz(i.get("pmf_index"), 5) / 10.0) * 10.0
+        s["Scalability"] = self._clamp01(self._nz(i.get("scalability_index"), 5) / 10.0) * 10.0
+        s["Technology Duplicacy"] = (1.0 - self._clamp01(self._nz(i.get("technology_duplicacy_index"), 5) / 10.0)) * 10.0
+        s["Execution Duplicacy"] = (1.0 - self._clamp01(self._nz(i.get("execution_duplicacy_index"), 5) / 10.0)) * 10.0
+        s["First Mover Advantage"] = self._clamp01(self._nz(i.get("first_mover_advantage_index"), 5) / 10.0) * 10.0
+        s["Barriers to Entry"] = self._clamp01(self._nz(i.get("barriers_to_entry_index"), 5) / 10.0) * 10.0
+        s["Number of Close Competitors"] = (1.0 - self._clamp01(self._nz(i.get("num_close_competitors"), 5) / 10.0)) * 10.0
+        s["Percentage Price Advantage"] = self._clamp01(self._nz(i.get("price_advantage_pct"), 0) / 50.0) * 10.0  # cap at 50%
+        # GTM/Revenue
+        mrr = self._nz(i.get("mrr_inr"), 0.0)
+        burn = self._nz(i.get("burn"), 0.0)
+        s["Monthly Recurring Revenue"] = self._clamp01(mrr / (burn + 1e-6)) * 10.0 if burn > 0 else 5.0
+        s["Sales Growth"] = self._clamp01(self._nz(i.get("sales_growth_pct"), 0) / 200.0) * 10.0
+        s["Lead to Close Ratio"] = self._clamp01(self._nz(i.get("lead_to_close_ratio_pct"), 10) / 50.0) * 10.0
+        s["Channels of Promotion"] = self._clamp01(self._nz(i.get("channels_of_promotion"), 2) / 8.0) * 10.0
+        s["Marketing Expenditure"] = (1.0 - self._clamp01(self._nz(i.get("marketing_spend_inr"), 0) / max(1.0, mrr*12))) * 10.0
+        s["LTV/CAC"] = self._clamp01(self._nz(i.get("ltv_cac_ratio"), 3.0) / 6.0) * 10.0
+        s["Customer Growth"] = self._clamp01(self._nz(i.get("customer_growth_pct"), 0) / 200.0) * 10.0
+        s["Repurchase Ratio"] = self._clamp01(self._nz(i.get("repurchase_ratio_pct"), 0) / 80.0) * 10.0
+        # Team/ops
+        s["Experience with Domain"] = self._clamp01(self._nz(i.get("domain_experience_years"), 3) / 15.0) * 10.0
+        s["Quality of Experience in Domain"] = self._clamp01(self._nz(i.get("quality_of_experience_index"), 5) / 10.0) * 10.0
+        s["Size"] = self._clamp01(self._nz(i.get("team_size"), 10) / 200.0) * 10.0
+        s["Salaries"] = (1.0 - self._clamp01(self._nz(i.get("avg_salary_inr"), 0) / 2_000_000)) * 10.0
+        s["Fundraise"] = self._clamp01(self._nz(i.get("total_funding_usd"), 0) / 50_000_000) * 10.0
+        s["Equity Dilution"] = (1.0 - self._clamp01(self._nz(i.get("equity_dilution_pct"), 0) / 50.0)) * 10.0
+        s["Runway"] = self._clamp01(self._nz(i.get("runway_months"), 6) / 24.0) * 10.0
+        s["CAC"] = (1.0 - self._clamp01(self._nz(i.get("cac_inr"), 0) / 25_000)) * 10.0
+        s["Variance Analysis"] = self._clamp01(self._nz(i.get("variance_analysis_index"), 5) / 10.0) * 10.0
+        s["MRR Growth Rate"] = self._clamp01(self._nz(i.get("mrr_growth_rate_pct"), 0) / 200.0) * 10.0
+        # Finance ratios
+        s["D/E Ratio"] = (1.0 - self._clamp01(self._nz(i.get("de_ratio"), 0) / 3.0)) * 10.0
+        s["GPM"] = self._clamp01(self._nz(i.get("gpm_pct"), 60) / 90.0) * 10.0
+        s["NR"] = self._clamp01(self._nz(i.get("nr_inr"), 0) / 1_000_000_000) * 10.0
+        s["Net Income Ratio"] = self._clamp01(self._nz(i.get("net_income_ratio_pct"), 0) / 40.0) * 10.0
+        # IP
+        s["Filed Patents"] = self._clamp01(self._nz(i.get("filed_patents"), 0) / 10.0) * 10.0
+        s["Approved Patents"] = self._clamp01(self._nz(i.get("approved_patents"), 0) / 10.0) * 10.0
+        return s
+
+    def compute(self, ai_weights: Optional[Dict[str, float]] = None, ai_adjustment: float = 0.0) -> Dict[str, Any]:
+        scores = self._score()
+        weights = dict(self.BASE_WEIGHTS)
+        if isinstance(ai_weights, dict) and ai_weights:
+            # normalize ai weights to sum to base sum
+            base_sum = sum(weights.values())
+            ai_sum = sum(float(v) for v in ai_weights.values() if isinstance(v, (int, float)))
+            if ai_sum > 0:
+                scale = base_sum / ai_sum
+                for k, v in ai_weights.items():
+                    try:
+                        weights[k] = float(v) * scale
+                    except Exception:
+                        pass
+        # weighted sum
+        total_w = sum(weights.values())
+        agg = 0.0
+        for k, w in weights.items():
+            agg += scores.get(k, 5.0) * w
+        ssq_deep = (agg / max(1e-6, total_w))
+        ssq_deep = max(0.0, min(10.0, ssq_deep + float(ai_adjustment)))
+        return {
+            "per_factor_scores": {k: round(v, 2) for k, v in scores.items()},
+            "weights": weights,
+            "ssq_deep_dive_score": round(ssq_deep, 2),
+            "ai_adjustment": round(float(ai_adjustment), 2),
+        }
+
+
 class ExternalDataIntegrator:
     def __init__(self, key: Optional[str]):
         self.enabled = bool(key) and HAS_ALPHA and TimeSeries is not None
@@ -184,10 +324,6 @@ class NextGenVCEngine:
                 self.research = DeepResearchService(research_key or os.getenv("RESEARCH_API_KEY") or os.getenv("GROK_API_KEY"))
             except Exception as e:
                 logger.warning(f"[engine] DeepResearchService disabled: {e}")
-
-        # Simple in-memory research cache: key -> (ts, payload)
-        self._research_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
-        self._research_ttl_sec = int(os.getenv("RESEARCH_CACHE_TTL_SEC", "21600"))  # 6 hours default
 
     # ---------- helpers ----------
     def _fx_rate(self) -> float:
@@ -284,7 +420,7 @@ class NextGenVCEngine:
         p = 1.0 / (1.0 + math.exp(-z))
         return float(max(0.03, min(0.97, p)))
 
-    def _valuation_range_abs_usd(self, inputs: Dict[str, Any], sector: str, stage: str, ssq: float) -> Tuple[float, float]:
+    def _valuation_range_abs_usd(self, inputs: Dict[str, Any], sector: str, stage: str, ssq: float, ai_band: Optional[Tuple[float, float]] = None) -> Tuple[float, float]:
         fx = self._fx_rate()
         arr_in = float(inputs.get("arr", 0.0))
         currency = str(inputs.get("currency", "INR")).upper()
@@ -296,6 +432,11 @@ class NextGenVCEngine:
         burn_mult = self._burn_multiple(arr_in, float(inputs.get("burn", 0.0)))
 
         low_m, high_m = self._sector_stage_bands(sector, stage)
+        if ai_band and all(isinstance(x, (int, float)) for x in ai_band):
+            # Blend 50/50 with AI suggestion
+            low_m = 0.5 * low_m + 0.5 * float(ai_band[0])
+            high_m = 0.5 * high_m + 0.5 * float(ai_band[1])
+
         mult = ((low_m + high_m) / 2.0) \
                * self._ssq_factor(ssq) \
                * self._growth_factor(growth_ann) \
@@ -311,32 +452,9 @@ class NextGenVCEngine:
         high_abs = max(low_abs + 0.25e6, arr_usd_abs * high)
         return float(low_abs), float(high_abs)
 
-    def _research_cache_key(self, company: str, sector: str, location: str, description: str) -> str:
-        return f"{company.strip().lower()}|{sector.strip().lower()}|{location.strip().lower()}|{(description or '').strip().lower()}"
-
-    def _get_research(self, company: str, sector: str, location: str, description: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        diagnostics = {"enabled": bool(self.research), "cache_hit": False, "error": ""}
-        if not self.research:
-            return {"notice": "External research service not available. Add RESEARCH_API_KEY."}, diagnostics
-
-        key = self._research_cache_key(company, sector, location, description)
-        now = time.time()
-        if key in self._research_cache:
-            ts, payload = self._research_cache[key]
-            if now - ts < self._research_ttl_sec:
-                diagnostics["cache_hit"] = True
-                return payload, diagnostics
-
-        try:
-            payload = self.research.research(company, sector, location, description)
-            self._research_cache[key] = (now, payload)
-            return payload, diagnostics
-        except Exception as e:
-            diagnostics["error"] = str(e)
-            return {"error": "Research unavailable right now."}, diagnostics
-
     # ---------- main ----------
     async def comprehensive_analysis(self, inputs: Dict[str, Any], comps_ticker: str) -> Dict[str, Any]:
+        # Focus area
         fa = FocusArea.ENHANCE_URBAN_LIFESTYLE
         fa_val = str(inputs.get("focus_area", "")).strip()
         for x in FocusArea:
@@ -344,6 +462,7 @@ class NextGenVCEngine:
                 fa = x
                 break
 
+        # Product maturity adjusted for certain areas
         product_stage_score = float(inputs.get("product_stage_score", 5.0))
         if fa == FocusArea.LIVE_HEALTHY:
             ce_map = {"None": 1, "Pre-clinical": 3, "Phase I/II": 6, "Phase III": 8, "Approved": 9}
@@ -372,9 +491,53 @@ class NextGenVCEngine:
             investor_quality_score=float(inputs.get("investor_quality_score", 5.0)),
         )
 
-        ssq_report = SpeedscaleQuotientCalculator(inputs, profile).calculate()
-        ssq = float(ssq_report.get("ssq_score", 5.0))
+        # Optional AI subjective scoring (team/investor)
+        ai_subjectives: Dict[str, Any] = {}
+        if self.research and (inputs.get("ai_score_team_execution") or inputs.get("ai_score_investor_quality")):
+            context = {
+                "company": profile.company_name,
+                "sector": profile.sector,
+                "stage": profile.stage,
+                "focus_area": profile.focus_area.value,
+                "evidence": {
+                    "team": inputs.get("team_ai_evidence", ""),
+                    "investors": inputs.get("investor_ai_evidence", ""),
+                    "summary": inputs.get("product_desc", "")[:600],
+                }
+            }
+            try:
+                ai_subjectives = await asyncio.to_thread(self.research.ai_score_subjectives, context)
+                t = ai_subjectives.get("team_execution_score")
+                v = ai_subjectives.get("investor_quality_score")
+                if inputs.get("ai_score_team_execution") and isinstance(t, (int, float)) and 0 <= t <= 10:
+                    profile.adaptability_score = float(t)  # reuse as execution proxy
+                if inputs.get("ai_score_investor_quality") and isinstance(v, (int, float)) and 0 <= v <= 10:
+                    profile.investor_quality_score = float(v)
+            except Exception as e:
+                logger.warning(f"[engine] AI subjectives failed: {e}")
 
+        # Base SSQ (traditional)
+        ssq_report = SpeedscaleQuotientCalculator(inputs, profile).calculate()
+        ssq_base = float(ssq_report.get("ssq_score", 5.0))
+
+        # SSQ Deep-Dive (from detailed factors) + optional AI weights
+        ai_ssq_weights: Dict[str, float] = {}
+        ai_ssq_adj = 0.0
+        if self.research and inputs.get("use_ai_ssq_weights"):
+            try:
+                ai_insights = await asyncio.to_thread(self.research.ssq_insights, inputs.get("ssq_deep_dive_factors", {}))
+                ai_ssq_weights = ai_insights.get("weights", {}) or {}
+                ai_ssq_adj = float(ai_insights.get("ssq_adjustment", 0.0))
+            except Exception as e:
+                logger.warning(f"[engine] AI SSQ insights failed: {e}")
+        ssq_deep_calc = SSQDeepDiveCalculator(inputs.get("ssq_deep_dive_factors", {}))
+        ssq_deep_out = ssq_deep_calc.compute(ai_weights=ai_ssq_weights, ai_adjustment=ai_ssq_adj)
+        ssq_deep = float(ssq_deep_out.get("ssq_deep_dive_score", ssq_base))
+        # Final SSQ: blend base and deep-dive (60/40)
+        ssq_final = round(0.6 * ssq_base + 0.4 * ssq_deep, 1)
+        ssq_report["ssq_score"] = ssq_final
+
+        # Online predictor (optional)
         async def _run_online() -> Dict[str, Any]:
             if self.online_predictor is None:
                 return {}
@@ -384,6 +547,7 @@ class NextGenVCEngine:
                 logger.warning(f"[engine] Online predictor failed: {e}")
                 return {}
 
+        # Enrichment and research
         async def _run_enrichment() -> Dict[str, Any]:
             if self.enrichment is None:
                 return {}
@@ -393,15 +557,55 @@ class NextGenVCEngine:
                 logger.warning(f"[engine] Enrichment failed: {e}")
                 return {}
 
-        async def _run_research() -> Tuple[Dict[str, Any], Dict[str, Any]]:
-            return await asyncio.to_thread(self._get_research, profile.company_name, profile.sector, str(inputs.get("location", "")), str(inputs.get("product_desc", "")))
+        async def _run_research() -> Dict[str, Any]:
+            if self.research is None:
+                return {"notice": "External research service not available. Add RESEARCH_API_KEY."}
+            try:
+                return await asyncio.to_thread(
+                    self.research.research,
+                    profile.company_name,
+                    profile.sector,
+                    str(inputs.get("location", "")),
+                    str(inputs.get("product_desc", "")),
+                )
+            except Exception as e:
+                logger.warning(f"[engine] Deep research failed: {e}")
+                return {"error": "Research unavailable right now."}
 
+        # Valuation assist (multiples)
+        ai_mult_band: Optional[Tuple[float, float]] = None
+        ai_multiple_payload: Dict[str, Any] = {}
+        if self.research and inputs.get("use_ai_valuation_assist"):
+            try:
+                val_ctx = {
+                    "company": profile.company_name,
+                    "sector": profile.sector,
+                    "stage": profile.stage,
+                    "focus_area": profile.focus_area.value,
+                    "geo": inputs.get("location", ""),
+                    "signals": {
+                        "ssq": ssq_final,
+                        "growth_mom_pct": inputs.get("expected_monthly_growth_pct", 5.0),
+                        "gross_margin_pct": inputs.get("gross_margin_pct", 60.0),
+                        "burn_multiple": self._burn_multiple(profile.annual_revenue, profile.monthly_burn),
+                        "churn_pct": inputs.get("monthly_churn_pct", 2.0),
+                    }
+                }
+                ai_multiple_payload = await asyncio.to_thread(self.research.valuation_assist, val_ctx)
+                lo = ai_multiple_payload.get("suggested_arr_multiple_low")
+                hi = ai_multiple_payload.get("suggested_arr_multiple_high")
+                if isinstance(lo, (int, float)) and isinstance(hi, (int, float)) and lo > 0 and hi >= lo:
+                    ai_mult_band = (float(lo), float(hi))
+            except Exception as e:
+                logger.warning(f"[engine] AI valuation assist failed: {e}")
+
+        # Parallelize optional tasks
         online_task = asyncio.create_task(_run_online())
         enrich_task = asyncio.create_task(_run_enrichment())
         research_task = asyncio.create_task(_run_research())
-        online_pred, enrichment, (research_res, research_diag) = await asyncio.gather(online_task, enrich_task, research_task)
+        online_pred, enrichment, research_res = await asyncio.gather(online_task, enrich_task, research_task)
 
-        market_analysis: Dict[str, Any] = {"_diagnostics": {"research": research_diag}}
+        market_analysis: Dict[str, Any] = {}
         if isinstance(research_res, dict):
             market_analysis["external_research"] = research_res
         if isinstance(enrichment, dict) and enrichment:
@@ -409,6 +613,7 @@ class NextGenVCEngine:
             market_analysis["recent_news"] = enrichment.get("recent_news", {})
             market_analysis["india_funding_dataset_context"] = enrichment.get("india_funding_dataset_context", {})
 
+        # Derived KPIs
         burn_mult = self._burn_multiple(profile.annual_revenue, profile.monthly_burn)
         growth_ann = self._annualized_growth(float(inputs.get("expected_monthly_growth_pct", 5.0)))
         ro40 = self._rule_of_40(growth_ann, float(inputs.get("gross_margin_pct", 60.0)))
@@ -416,10 +621,12 @@ class NextGenVCEngine:
         fx = self._fx_rate()
         arr_usd_abs = (profile.annual_revenue / (fx if fx > 0 else 83.0))
 
-        low_abs, high_abs = self._valuation_range_abs_usd(inputs, profile.sector, profile.stage, ssq)
+        # Valuation + probability
+        low_abs, high_abs = self._valuation_range_abs_usd(inputs, profile.sector, profile.stage, ssq_final, ai_mult_band)
         valuation_range_str = f"{self._fmt_usd_m(low_abs)} - {self._fmt_usd_m(high_abs)}"
-        prob = self._success_probability(ssq, burn_mult, churn_pct, ro40, profile.stage)
+        prob = self._success_probability(ssq_final, burn_mult, churn_pct, ro40, profile.stage)
 
+        # Simulation + comps + forecast
         def _simulate():
             cash = float(profile.cash_reserves)
             rev = float(profile.annual_revenue) / 12.0
@@ -459,7 +666,10 @@ class NextGenVCEngine:
 
         final_verdict = {"predicted_valuation_range_usd": valuation_range_str, "success_probability_percent": round(prob * 100.0, 1)}
 
-        # Research-amplified memo (refinement pass)
+        # Desired outcomes passthrough for memo synthesis
+        desired_outcomes = inputs.get("desired_outcomes", {}) or {}
+
+        # Research-amplified IC memo (use provider to refine if available)
         memo: Dict[str, Any] = {}
         ext = market_analysis.get("external_research", {}) if market_analysis else {}
         ext_memo = ext.get("memo", {}) if isinstance(ext, dict) else {}
@@ -469,7 +679,8 @@ class NextGenVCEngine:
                 "company": {"name": profile.company_name, "sector": profile.sector, "stage": profile.stage, "focus_area": profile.focus_area.value},
                 "valuation": {"range_usd": valuation_range_str, "low_abs_usd": round(low_abs, 2), "high_abs_usd": round(high_abs, 2)},
                 "kpis": {
-                    "ssq": float(ssq),
+                    "ssq": float(ssq_final),
+                    "ssq_deep_dive": ssq_deep_out,
                     "burn_multiple": round(burn_mult, 2),
                     "annual_growth_pct": round(growth_ann, 1),
                     "rule_of_40": round(ro40, 1),
@@ -478,11 +689,14 @@ class NextGenVCEngine:
                     "arr_usd": round(arr_usd_abs, 2),
                     "team_size": profile.team_size,
                 },
+                "subjectives_ai": ai_subjectives,
+                "valuation_ai": ai_multiple_payload,
                 "inputs": {
                     "ltv_cac_ratio": float(inputs.get("ltv_cac_ratio", 3.5)),
-                    "investor_quality_score": float(inputs.get("investor_quality_score", 7.0)),
+                    "investor_quality_score": float(profile.investor_quality_score),
                     "product_desc": str(inputs.get("product_desc", ""))[:800],
                     "founder_bio": str(inputs.get("founder_bio", ""))[:800],
+                    "desired_outcomes": desired_outcomes,
                 },
                 "research": {"summary": ext.get("summary", ""), "sections": ext.get("sections", {}), "sources": ext.get("sources", [])[:20]},
                 "probability": final_verdict["success_probability_percent"],
@@ -515,8 +729,8 @@ class NextGenVCEngine:
                 memo = {
                     "executive_summary": (
                         f"{profile.company_name} — {profile.sector}, {profile.stage}. "
-                        f"ARR ≈ {self._fmt_usd_m(arr_usd_abs)} | SSQ {ssq:.1f} | Rule of 40 {ro40:.0f} | Burn multiple {burn_mult:.2f}. "
-                        f"Valuation: {valuation_range_str}."
+                        f"ARR ≈ {self._fmt_usd_m(arr_usd_abs)} | SSQ {ssq_final:.1f} (Deep {ssq_deep_out.get('ssq_deep_dive_score', ssq_final):.1f}) | "
+                        f"Rule of 40 {ro40:.0f} | Burn multiple {burn_mult:.2f}. Valuation: {valuation_range_str}."
                     ),
                     "investment_thesis": "Compelling wedge and secular tailwinds; path to premium multiples requires sustained growth and capital efficiency.",
                     "market": "Attractive demand vectors and room for share capture within adjacent categories.",
@@ -528,15 +742,16 @@ class NextGenVCEngine:
                     "team": str(inputs.get("founder_bio", ""))[:800],
                     "risks": "Competitive intensity, GTM efficiency, macro fundraising window.",
                     "catalysts": "12–18m: feature launches, enterprise deals, geo expansion.",
-                    "round_dynamics": f"Stage {profile.stage}; investor quality {float(inputs.get('investor_quality_score',7)):.1f}/10.",
+                    "round_dynamics": f"Stage {profile.stage}; investor quality {float(profile.investor_quality_score):.1f}/10.",
                     "use_of_proceeds": "Strengthen GTM, product, data infra; selective leadership hires.",
                     "valuation_rationale": f"Sector/stage ARR multiples adjusted by quality factors yield {valuation_range_str}.",
-                    "kpis_next_12m": "Rule of 40 > 50; burn multiple < 1.5; NRR > 110%; ≥2x ARR.",
+                    "kpis_next_12m": f"Targets: {desired_outcomes if desired_outcomes else 'Rule of 40 > 50; burn multiple < 1.5; NRR > 110%; ≥2x ARR.'}",
                     "exit_paths": "Strategic M&A optionality; IPO feasible with scale and margins.",
                     "bull_case_narrative": "Premium multiples via sustained growth, improving margins, and durable retention.",
                     "bear_case_narrative": "Slower growth or capital intensity caps multiple; dilution risk.",
                     "recommendation": "Invest" if (final_verdict["success_probability_percent"] >= 68) else ("Watchlist" if final_verdict["success_probability_percent"] >= 52 else "Pass"),
                     "conviction": "High" if (final_verdict["success_probability_percent"] >= 78) else ("Medium" if final_verdict["success_probability_percent"] >= 58 else "Low"),
+                    "speed_scaling_deep_dive": ssq_deep_out,
                 }
 
         return {
@@ -554,6 +769,8 @@ class NextGenVCEngine:
             "public_comps": comps_res,
             "profile": profile,
             "ssq_report": ssq_report,
+            "ssq_deep_dive": ssq_deep_out,
+            "ai_diagnostics": {"subjectives": ai_subjectives, "valuation": ai_multiple_payload},
             "fundraise_forecast": forecast,
             "ml_predictions": {"online": online_pred, "legacy": {}},
         }
