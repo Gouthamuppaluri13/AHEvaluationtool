@@ -149,25 +149,42 @@ def create_risk_bar_chart(risks: Dict[str, float], key=None):
     fig.update_layout(template="anthill", title=dict(text="Top Risk Drivers"), height=240, xaxis_title="Score (0–10)", yaxis_title="")
     st.plotly_chart(fig, use_container_width=True, key=key)
 
-def create_bullet_indicator(title: str, current: float, target: float, suffix: str = "", invert=False, key=None):
-    perf = float(current)
-    tgt = float(target)
+# FIX: draw label inside the figure's white "pill" so text appears in the empty bar area
+def create_bullet_indicator(title: str, current: float, target: float, suffix: str = "", invert: bool = False, key=None):
+    # invert=False => higher is better; invert=True => lower is better
+    perf = float(current or 0.0)
+    tgt = float(target or 0.0)
+    # Ensure a sensible axis even when values are tiny/zero
+    axis_max = max(1.0, perf, tgt) * 1.25
+
     fig = go.Figure(go.Indicator(
         mode="number+gauge+delta",
         value=perf,
         number={"suffix": suffix, "font": {"size": 16}},
-        delta={"reference": tgt, "increasing": {"color": PALETTE["success"] if invert else PALETTE["danger"]},
-               "decreasing": {"color": PALETTE["danger"] if invert else PALETTE["success"]}},
+        delta={
+            "reference": tgt,
+            "increasing": {"color": PALETTE["success"] if invert else PALETTE["danger"]},
+            "decreasing": {"color": PALETTE["danger"] if invert else PALETTE["success"]},
+        },
+        domain={"x": [0, 1], "y": [0, 1]},
         gauge={
             "shape": "bullet",
-            "axis": {"range": [0, max(perf, tgt) * 1.25 + 1e-6]},
+            "axis": {"range": [0, axis_max]},
             "bar": {"color": PALETTE["primary"]},
-            "threshold": {"line": {"color": PALETTE["accent"], "width": 2}, "thickness": 0.75, "value": tgt}
+            "threshold": {"line": {"color": PALETTE["accent"], "width": 2}, "thickness": 0.75, "value": tgt},
         },
-        title={"text": title, "font": {"size": 12}}
     ))
+
+    # Label inside the plot's top whitespace (aligned to the white pill)
+    fig.add_annotation(
+        x=0.0, y=1.06, xref="paper", yref="paper",
+        text=title, showarrow=False, align="left",
+        font=dict(size=12, color="#2f334d")
+    )
+
+    # Tight margins so the annotation sits nicely in the white strip
     fig.update_layout(template="anthill", height=120, margin=dict(l=6, r=6, t=30, b=6))
-    st.plotly_chart(fig, use_container_width=True, key=key)
+    st.plotly_chart(fig, use_container_width=True, key=key, config={"displayModeBar": False})
 
 def fmt_usd_m(amount_abs_usd: float) -> str:
     try:
@@ -523,17 +540,18 @@ def render_summary_dashboard(report):
         churn_m = float(inputs.get("monthly_churn_pct", 2.0))
         annual_ret = pow(1.0 - max(0, min(50.0, churn_m))/100.0, 12) * 100.0
         colb1, colb2, colb3, colb4 = st.columns(4, gap="medium")
+        # NOTE: no external card titles here; the figure renders its own label inside the white strip
         with colb1:
-            with card(title="ARR (USD)"):
+            with card():
                 create_bullet_indicator("ARR (USD)", current=arr_usd, target=float(desired.get("target_arr_usd", arr_usd)), suffix="", key="bullet_arr")
         with colb2:
-            with card(title="Burn Multiple"):
+            with card():
                 create_bullet_indicator("Burn Multiple", current=burn_mult, target=float(desired.get("target_burn_multiple", 1.5)), invert=True, key="bullet_burn")
         with colb3:
-            with card(title="NRR proxy"):
+            with card():
                 create_bullet_indicator("NRR proxy (from churn)", current=annual_ret, target=float(desired.get("target_nrr_pct", 110.0)), suffix="%", key="bullet_nrr")
         with colb4:
-            with card(title="Gross Margin"):
+            with card():
                 create_bullet_indicator("Gross Margin", current=gm, target=float(desired.get("target_gm_pct", gm)), suffix="%", key="bullet_gm")
 
 def render_deep_dive_tab(report: Dict[str, Any]):
@@ -766,4 +784,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
