@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional, List, Tuple
 
 import pandas as pd
 
-# Optional: Alpha Vantage
+# Optional: Alpha Vantage (kept; app no longer asks for ticker)
 try:
     from alpha_vantage.timeseries import TimeSeries  # type: ignore
     HAS_ALPHA = True
@@ -158,6 +158,7 @@ class SSQDeepDiveCalculator:
     def _score(self) -> Dict[str, float]:
         i = self.i
         s: Dict[str, float] = {}
+        # Market & moat
         s["Maximum Market Size"] = self._clamp01(self._nz(i.get("maximum_market_size_usd"), 0) / 1_000_000_000) * 10.0
         s["Market Growth Rate"] = self._clamp01(self._nz(i.get("market_growth_rate_pct"), 0) / 100.0) * 10.0
         s["Economic Condition"] = self._clamp01(self._nz(i.get("economic_condition_index"), 5) / 10.0) * 10.0
@@ -173,6 +174,7 @@ class SSQDeepDiveCalculator:
         s["Barriers to Entry"] = self._clamp01(self._nz(i.get("barriers_to_entry_index"), 5) / 10.0) * 10.0
         s["Number of Close Competitors"] = (1.0 - self._clamp01(self._nz(i.get("num_close_competitors"), 5) / 10.0)) * 10.0
         s["Percentage Price Advantage"] = self._clamp01(self._nz(i.get("price_advantage_pct"), 0) / 50.0) * 10.0
+        # GTM & revenue
         mrr = self._nz(i.get("mrr_inr"), 0.0)
         burn = self._nz(i.get("burn"), 0.0)
         s["Monthly Recurring Revenue"] = self._clamp01(mrr / (burn + 1e-6)) * 10.0 if burn > 0 else 5.0
@@ -183,6 +185,7 @@ class SSQDeepDiveCalculator:
         s["LTV/CAC"] = self._clamp01(self._nz(i.get("ltv_cac_ratio"), 3.0) / 6.0) * 10.0
         s["Customer Growth"] = self._clamp01(self._nz(i.get("customer_growth_pct"), 0) / 200.0) * 10.0
         s["Repurchase Ratio"] = self._clamp01(self._nz(i.get("repurchase_ratio_pct"), 0) / 80.0) * 10.0
+        # Team & ops
         s["Experience with Domain"] = self._clamp01(self._nz(i.get("domain_experience_years"), 3) / 15.0) * 10.0
         s["Quality of Experience in Domain"] = self._clamp01(self._nz(i.get("quality_of_experience_index"), 5) / 10.0) * 10.0
         s["Size"] = self._clamp01(self._nz(i.get("team_size"), 10) / 200.0) * 10.0
@@ -193,10 +196,12 @@ class SSQDeepDiveCalculator:
         s["CAC"] = (1.0 - self._clamp01(self._nz(i.get("cac_inr"), 0) / 25_000)) * 10.0
         s["Variance Analysis"] = self._clamp01(self._nz(i.get("variance_analysis_index"), 5) / 10.0) * 10.0
         s["MRR Growth Rate"] = self._clamp01(self._nz(i.get("mrr_growth_rate_pct"), 0) / 200.0) * 10.0
+        # Finance ratios
         s["D/E Ratio"] = (1.0 - self._clamp01(self._nz(i.get("de_ratio"), 0) / 3.0)) * 10.0
         s["GPM"] = self._clamp01(self._nz(i.get("gpm_pct"), 60) / 90.0) * 10.0
         s["NR"] = self._clamp01(self._nz(i.get("nr_inr"), 0) / 1_000_000_000) * 10.0
         s["Net Income Ratio"] = self._clamp01(self._nz(i.get("net_income_ratio_pct"), 0) / 40.0) * 10.0
+        # IP
         s["Filed Patents"] = self._clamp01(self._nz(i.get("filed_patents"), 0) / 10.0) * 10.0
         s["Approved Patents"] = self._clamp01(self._nz(i.get("approved_patents"), 0) / 10.0) * 10.0
         return s
@@ -388,6 +393,7 @@ class NextGenVCEngine:
 
         low_m, high_m = self._sector_stage_bands(sector, stage)
         if ai_band and all(isinstance(x, (int, float)) for x in ai_band):
+            # Blend with AI suggestion
             low_m = 0.5 * low_m + 0.5 * float(ai_band[0])
             high_m = 0.5 * high_m + 0.5 * float(ai_band[1])
 
@@ -446,6 +452,7 @@ class NextGenVCEngine:
             investor_quality_score=float(inputs.get("investor_quality_score", 5.0)),
         )
 
+        # Founder profile (LinkedIn + X)
         founder_profile_payload: Dict[str, Any] = {}
         if self.research and inputs.get("founder_linkedin_url"):
             try:
@@ -457,7 +464,6 @@ class NextGenVCEngine:
                     profile.sector,
                     profile.stage,
                 )
-                # Apply founder signals to execution/network quality
                 exec_sig = founder_profile_payload.get("execution_signals", None)
                 net_sig = founder_profile_payload.get("network_strength", None)
                 if isinstance(exec_sig, (int, float)):
@@ -467,7 +473,7 @@ class NextGenVCEngine:
             except Exception as e:
                 logger.warning(f"[engine] Founder profile analysis failed: {e}")
 
-        # Optional AI subjective scoring (team/investor) — still supported
+        # Optional AI subjective scoring (team/investor)
         ai_subjectives: Dict[str, Any] = {}
         if self.research and (inputs.get("ai_score_team_execution") or inputs.get("ai_score_investor_quality")):
             context = {
@@ -496,7 +502,7 @@ class NextGenVCEngine:
         ssq_report = SpeedscaleQuotientCalculator(inputs, profile).calculate()
         ssq_base = float(ssq_report.get("ssq_score", 5.0))
 
-        # SSQ deep-dive
+        # SSQ deep-dive with optional AI weights
         ai_ssq_weights = {}
         ai_ssq_adj = 0.0
         if self.research and inputs.get("use_ai_ssq_weights"):
@@ -510,7 +516,7 @@ class NextGenVCEngine:
         ssq_final = round(0.6 * ssq_base + 0.4 * float(ssq_deep.get("ssq_deep_dive_score", ssq_base)), 1)
         ssq_report["ssq_score"] = ssq_final
 
-        # Online predictor / enrichment / research
+        # Optional parallel tasks
         async def _run_online() -> Dict[str, Any]:
             if self.online_predictor is None:
                 return {}
@@ -597,7 +603,7 @@ class NextGenVCEngine:
         valuation_range_str = f"{self._fmt_usd_m(low_abs)} - {self._fmt_usd_m(high_abs)}"
         prob = self._success_probability(ssq_final, burn_mult, churn_pct, ro40, profile.stage)
 
-        # Simulation + comps + forecast
+        # Simulation + forecast
         def _simulate():
             cash = float(profile.cash_reserves)
             rev = float(profile.annual_revenue) / 12.0
@@ -613,7 +619,7 @@ class NextGenVCEngine:
             return {"time_series_data": pd.DataFrame(hist), "narrative_summary": f"Based on current financials and 5% monthly revenue growth, the company {summary}"}
 
         sim_task = asyncio.to_thread(_simulate)
-        comps_task = asyncio.to_thread(self.data_integrator.get_public_comps, comps_ticker or "")
+
         async def _run_forecast() -> Dict[str, Any]:
             if self.fundraise_forecast is None:
                 return {}
@@ -622,8 +628,9 @@ class NextGenVCEngine:
             except Exception as e:
                 logger.warning(f"[engine] Fundraise forecast failed: {e}")
                 return {}
+
         forecast_task = asyncio.create_task(_run_forecast())
-        sim_res, comps_res, forecast = await asyncio.gather(sim_task, comps_task, forecast_task)
+        sim_res, forecast = await asyncio.gather(sim_task, forecast_task)
 
         risk = {
             "Market": float(profile.market_risk_score),
@@ -723,7 +730,7 @@ class NextGenVCEngine:
             },
             "simulation": sim_res,
             "market_deep_dive": market_analysis,
-            "public_comps": comps_res,
+            "public_comps": {"notice": "Public comps not requested."},
             "profile": profile,
             "founder_profile": founder_profile_payload,
             "ssq_report": ssq_report,
