@@ -9,6 +9,7 @@ from typing import Dict, Any
 
 from next_gen_vc_engine import NextGenVCEngine, FocusArea, FounderPersonality, AdvancedStartupProfile
 from ui_theme import apply_theme, hero, section_heading, card  # Glass theme
+from services.pdf_ingest import PDFIngestor  # NEW
 
 # Apply Apple-like glass theme
 apply_theme(page_title="Anthill AI+ Evaluation", page_icon="🦅")
@@ -112,7 +113,6 @@ def display_deep_dive_intel(data: Dict[str, Any]):
                     else:
                         st.markdown(f"**{sub_key.replace('_', ' ').title()}:** {value}")
             elif isinstance(content, list):
-                # Card per competitive item
                 for item in content:
                     if isinstance(item, dict):
                         with card():
@@ -122,6 +122,39 @@ def display_deep_dive_intel(data: Dict[str, Any]):
                                     st.markdown(f"**{sub_key.replace('_', ' ').title()}:** {value}")
             else:
                 st.markdown(str(content))
+
+def render_pdf_autorun_area():
+    section_heading("📄 PDF Auto‑Analysis", "Upload a deck and generate the full evaluation automatically")
+    with card():
+        uploaded = st.file_uploader("Upload a startup PDF deck", type=["pdf"])
+        default_ticker = st.text_input("Optional: Public Comps Ticker", "ZOMATO.BSE", help="Used for the public comps lookup")
+        parse = st.button("🔎 Parse PDF")
+        if uploaded and parse:
+            with st.spinner("Extracting content and building inputs from PDF..."):
+                try:
+                    ingestor = PDFIngestor(st.secrets.get("GEMINI_API_KEY"))
+                    extracted = ingestor.extract(uploaded.read())
+                    # Preview extracted fields
+                    st.success("Parsed PDF successfully. Review extracted fields below.")
+                    prev_cols = st.columns(2)
+                    left_keys = ["company_name", "sector", "stage", "location", "focus_area", "founder_type", "team_size", "num_investors"]
+                    right_keys = ["arr", "burn", "cash", "ltv_cac_ratio", "gross_margin_pct", "monthly_churn_pct", "product_stage_score", "team_score"]
+                    with prev_cols[0]:
+                        for k in left_keys:
+                            st.write(f"• {k}: {extracted.get(k)}")
+                    with prev_cols[1]:
+                        for k in right_keys:
+                            st.write(f"• {k}: {extracted.get(k)}")
+                    with st.expander("Show all extracted fields"):
+                        st.json(extracted)
+                    # Offer to run
+                    if st.button("🚀 Run Analysis from PDF"):
+                        st.session_state.view = 'analysis'
+                        st.session_state.inputs = extracted
+                        st.session_state.comps_ticker = default_ticker
+                        st.experimental_rerun()
+                except Exception as e:
+                    st.error(f"Failed to parse PDF: {e}")
 
 def render_input_area():
     with card():
@@ -138,7 +171,7 @@ def render_input_area():
         "Mitigate Climate Change": ['Clean Energy', 'EV Mobility', 'AgriTech']
     }
 
-    tab1, tab2 = st.tabs(["📝 Company Profile", "📊 Metrics & Financials"])
+    tab1, tab2, tab3 = st.tabs(["📝 Company Profile", "📊 Metrics & Financials", "📄 PDF Auto‑Analysis"])
 
     with tab1:
         section_heading("Qualitative Information", "Founders, product, and context")
@@ -209,6 +242,9 @@ def render_input_area():
             except ValueError:
                 st.error("Invalid web traffic. Please enter only comma-separated numbers.", icon="🛑")
                 st.stop()
+
+    with tab3:
+        render_pdf_autorun_area()
 
     st.markdown("---")
     with card():
