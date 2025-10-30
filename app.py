@@ -1,10 +1,12 @@
 import os
+import math
 import logging
 import asyncio
 from typing import Dict, Any, List, Tuple
 
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.io as pio
 import streamlit as st
 
 from next_gen_vc_engine import NextGenVCEngine, FounderPersonality
@@ -12,24 +14,52 @@ from ui_theme import apply_theme, hero, section_heading, card
 from services.pdf_ingest import PDFIngestor
 
 # =========================
+# Plotly theme (consistent fonts/colors)
+# =========================
+PALETTE = {
+    "primary": "#0A84FF",
+    "accent": "#6E56CF",
+    "success": "#34C759",
+    "warn": "#FF9F0A",
+    "danger": "#FF3B30",
+    "muted": "#8E8E93",
+}
+pio.templates["anthill"] = go.layout.Template(
+    layout=go.Layout(
+        font=dict(family="Inter, -apple-system, Segoe UI, Roboto, system-ui, sans-serif", size=12, color="#0f1221"),
+        title=dict(font=dict(size=16)),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(255,255,255,1)",
+        colorway=[PALETTE["primary"], PALETTE["accent"], PALETTE["success"], PALETTE["warn"], PALETTE["danger"], "#2BBBAD", "#FFA07A"],
+        margin=dict(l=8, r=8, t=36, b=24),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+)
+pio.templates.default = "anthill+plotly_white"
+
+# =========================
 # Global theme + compact layout
 # =========================
 apply_theme(page_title="Anthill AI+ Evaluation", page_icon="🦅")
 
+# Extra-compact page CSS
 st.markdown(
     """
     <style>
     header[data-testid="stHeader"] { height: 0px; padding: 0; background: transparent; }
-    .block-container { padding-top: 0.35rem !important; padding-bottom: 0.75rem !important; max-width: 1200px; }
+    .block-container { padding-top: 0.3rem !important; padding-bottom: 0.7rem !important; max-width: 1200px; }
     [data-testid="stVerticalBlock"] { gap: 0.35rem !important; }
-    [data-testid="stHorizontalBlock"] { gap: 0.35rem !important; }
+    [data-testid="stHorizontalBlock"] { gap: 0.4rem !important; }
     .stTabs [data-baseweb="tab-list"] { gap: 0.25rem !important; }
-    .stTabs [data-baseweb="tab"] { padding: 0.28rem 0.5rem !important; }
-    div[data-testid="stMetric"] { margin-bottom: 0.2rem !important; }
-    .stTextInput, .stSelectbox, .stTextArea, .stNumberInput, .stSlider { margin-bottom: 0.35rem !important; }
-    .stButton > button { padding: 0.42rem 0.75rem !important; border-radius: 8px !important; }
-    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 { margin-top: 0.25rem !important; margin-bottom: 0.25rem !important; }
-    .stMarkdown p { margin: 0.20rem 0 !important; }
+    .stTabs [data-baseweb="tab"] { padding: 0.24rem 0.5rem !important; font-size: 0.86rem !important; }
+    div[data-testid="stMetric"] { margin-bottom: 0.15rem !important; }
+    .stTextInput, .stSelectbox, .stTextArea, .stNumberInput, .stSlider { margin-bottom: 0.3rem !important; }
+    .stButton > button { padding: 0.38rem 0.7rem !important; border-radius: 8px !important; font-size: 0.9rem !important; }
+    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 { margin-top: 0.2rem !important; margin-bottom: 0.2rem !important; }
+    .stMarkdown h1 { font-size: 1.25rem !important; }
+    .stMarkdown h2 { font-size: 1.05rem !important; }
+    .stMarkdown h3 { font-size: 0.95rem !important; color: #2f334d !important; }
+    .stMarkdown p, .stMarkdown li { margin: 0.15rem 0 !important; font-size: 0.90rem !important; line-height: 1.25rem !important; }
     .css-1dp5vir, .e1f1d6gn3 { margin: 0 !important; }
     </style>
     """,
@@ -70,40 +100,112 @@ def load_engine():
         st.stop()
 
 # =========================
-# Charts
+# Chart helpers
 # =========================
-def create_gauge_chart(score, title):
-    fig = go.Figure(go.Indicator(mode="gauge+number", value=score, title={'text': title, 'font': {'size': 14}},
-                                 number={'font': {'size': 20}},
-                                 gauge={'axis': {'range': [None, 10]}, 'bar': {'color': "#0A84FF"},
-                                        'bgcolor': "rgba(255,255,255,0)", 'borderwidth': 0,
-                                        'steps': [{'range': [0, 3.3], 'color': 'rgba(255,59,48,0.10)'},
-                                                  {'range': [3.3, 6.6], 'color': 'rgba(255,204,0,0.10)'},
-                                                  {'range': [6.6, 10], 'color': 'rgba(52,199,89,0.10)'}]}))
-    fig.update_layout(template="simple_white", paper_bgcolor="rgba(0,0,0,0)", margin=dict(l=0, r=0, t=30, b=0), height=200)
-    return fig
+def create_gauge_chart(score, title, height=190, key=None):
+    fig = go.Figure(
+        go.Indicator(
+            mode="gauge+number",
+            value=float(score) if isinstance(score, (int, float)) else 0.0,
+            title={'text': title, 'font': {'size': 13}},
+            number={'font': {'size': 18}},
+            gauge={
+                'axis': {'range': [None, 10]},
+                'bar': {'color': PALETTE["primary"]},
+                'bgcolor': "rgba(255,255,255,0)",
+                'borderwidth': 0,
+                'steps': [
+                    {'range': [0, 3.3], 'color': 'rgba(255,59,48,0.08)'},
+                    {'range': [3.3, 6.6], 'color': 'rgba(255,204,0,0.08)'},
+                    {'range': [6.6, 10], 'color': 'rgba(52,199,89,0.08)'}
+                ]
+            }
+        )
+    )
+    fig.update_layout(template="anthill", margin=dict(l=0, r=0, t=28, b=0), height=height)
+    st.plotly_chart(fig, use_container_width=True, key=key)
 
-def create_spider_chart(data, title):
+def create_spider_chart(data, title, key=None):
     if not isinstance(data, dict) or not data:
         data = {"Market": 5, "Execution": 5, "Technology": 5, "Regulatory": 5, "Competition": 5}
-    fig = go.Figure(go.Scatterpolar(r=list(data.values()), theta=list(data.keys()), fill='toself',
-                                    line=dict(color='#0A84FF', width=2), fillcolor='rgba(10,132,255,0.15)'))
-    fig.update_layout(template="simple_white", title=dict(text=title, font=dict(size=16)),
-                      polar=dict(bgcolor='rgba(255,255,255,0)', radialaxis=dict(visible=True, range=[0, 10])),
-                      paper_bgcolor='rgba(255,255,255,0)', margin=dict(l=0, r=0, t=30, b=0), height=260)
-    return fig
+    fig = go.Figure(
+        go.Scatterpolar(
+            r=list(data.values()), theta=list(data.keys()), fill='toself',
+            line=dict(color=PALETTE["primary"], width=2), fillcolor='rgba(10,132,255,0.15)'
+        )
+    )
+    fig.update_layout(template="anthill", title=dict(text=title), polar=dict(bgcolor='rgba(255,255,255,0)', radialaxis=dict(visible=True, range=[0, 10])), height=260)
+    st.plotly_chart(fig, use_container_width=True, key=key)
 
-def create_bar_chart(df: pd.DataFrame, title: str, x: str, y: str, color: str = "#0A84FF", height: int = 280):
-    if df.empty:
-        return go.Figure()
-    fig = go.Figure(go.Bar(x=df[x], y=df[y], marker_color=color))
-    fig.update_layout(template="simple_white", title=dict(text=title, font=dict(size=16)),
-                      xaxis=dict(title=x, tickangle=45), yaxis=dict(title=y),
-                      height=height, margin=dict(l=0, r=0, t=35, b=0), paper_bgcolor="rgba(0,0,0,0)")
-    return fig
+def create_area_traffic_chart(traffic: List[int], key=None):
+    if not traffic:
+        return
+    df = pd.DataFrame({"Month": list(range(1, len(traffic)+1)), "Traffic": traffic})
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df["Month"], y=df["Traffic"], fill='tozeroy', line=dict(color=PALETTE["primary"], width=2), name="Visits"))
+    fig.update_layout(template="anthill", title=dict(text="Web Traffic (last 12 months)"), height=240, xaxis_title="Month", yaxis_title="Visits")
+    st.plotly_chart(fig, use_container_width=True, key=key)
+
+def create_rule40_waterfall(annual_growth_pct: float, gross_margin_pct: float, key=None):
+    total = float(annual_growth_pct) + float(gross_margin_pct)
+    fig = go.Figure(go.Waterfall(
+        orientation="v",
+        measure=["relative", "relative", "total"],
+        x=["Growth %", "Gross Margin %", "Rule of 40"],
+        y=[annual_growth_pct, gross_margin_pct, 0],
+        text=[f"{annual_growth_pct:.0f}%", f"{gross_margin_pct:.0f}%", f"{total:.0f}%"],
+        textposition="outside",
+        connector={"line": {"color": PALETTE["muted"]}},
+        decreasing={"marker":{"color": PALETTE["danger"]}},
+        increasing={"marker":{"color": PALETTE["success"]}},
+        totals={"marker":{"color": PALETTE["accent"]}}
+    ))
+    fig.update_layout(template="anthill", title=dict(text="Rule of 40 Components"), height=240, yaxis_title="%")
+    st.plotly_chart(fig, use_container_width=True, key=key)
+
+def create_risk_bar_chart(risks: Dict[str, float], key=None):
+    if not risks:
+        return
+    items = sorted(risks.items(), key=lambda x: x[1], reverse=True)
+    df = pd.DataFrame(items, columns=["Risk", "Score"])
+    fig = go.Figure(go.Bar(x=df["Score"], y=df["Risk"], orientation="h", marker_color=PALETTE["warn"]))
+    fig.update_layout(template="anthill", title=dict(text="Top Risk Drivers"), height=240, xaxis_title="Score (0–10)", yaxis_title="")
+    st.plotly_chart(fig, use_container_width=True, key=key)
+
+def create_bullet_indicator(title: str, current: float, target: float, suffix: str = "", invert=False, key=None):
+    # invert=False means higher is better; invert=True means lower is better
+    perf = float(current)
+    tgt = float(target)
+    delta = (perf - tgt) if not invert else (tgt - perf)
+    fig = go.Figure(go.Indicator(
+        mode="number+gauge+delta",
+        value=perf,
+        number={"suffix": suffix, "font": {"size": 16}},
+        delta={"reference": tgt, "increasing": {"color": PALETTE["success"] if invert else PALETTE["danger"]},
+               "decreasing": {"color": PALETTE["danger"] if invert else PALETTE["success"]}},
+        gauge={
+            "shape": "bullet",
+            "axis": {"range": [0, max(perf, tgt) * 1.25 + 1e-6]},
+            "bar": {"color": PALETTE["primary"]},
+            "threshold": {"line": {"color": PALETTE["accent"], "width": 2}, "thickness": 0.75, "value": tgt}
+        },
+        title={"text": title, "font": {"size": 12}}
+    ))
+    fig.update_layout(template="anthill", height=120, margin=dict(l=6, r=6, t=30, b=6))
+    st.plotly_chart(fig, use_container_width=True, key=key)
+
+def fmt_usd_m(amount_abs_usd: float) -> str:
+    try:
+        return f"${amount_abs_usd/1_000_000:,.2f}M"
+    except Exception:
+        return "N/A"
+
+def annualize_growth(monthly_pct: float) -> float:
+    g = monthly_pct / 100.0
+    return (pow(1.0 + g, 12) - 1.0) * 100.0
 
 # =========================
-# Research view
+# Research view (unchanged structure, compact)
 # =========================
 def _render_paragraphs(title: str, content: str):
     if not content: return
@@ -127,7 +229,7 @@ def display_research(md: Dict[str, Any]):
 
     sections = ext.get("sections", {}) or {}
     if sections:
-        colL, colR = st.columns(2, gap="small")
+        colL, colR = st.columns(2, gap="medium")
         left = ["overview", "products", "business_model", "gtm", "unit_economics", "funding", "investors", "leadership"]
         right = ["hiring", "traction", "customers", "pricing", "competitors", "moat", "partnerships", "regulatory", "risks", "tech_stack", "roadmap"]
         with colL:
@@ -184,7 +286,7 @@ FOCUS_AREA_OPTIONS = {
 def render_company_profile_step() -> Dict[str, Any]:
     section_heading("Step 1 — Company Profile", "Complete this to unlock Metrics")
     inputs: Dict[str, Any] = {}
-    c1, c2 = st.columns(2, gap="small")
+    c1, c2 = st.columns(2, gap="medium")
     with c1:
         inputs['company_name'] = st.text_input("Company Name", st.session_state.profile_inputs.get('company_name', ''), key="pi_company_name")
         fa_keys = list(FOCUS_AREA_OPTIONS.keys())
@@ -212,7 +314,7 @@ def render_company_profile_step() -> Dict[str, Any]:
 
     required = ["company_name", "focus_area", "sector", "location", "stage", "founder_type", "founder_linkedin_url"]
     is_valid = all(bool(inputs.get(k)) for k in required)
-    col_next, _ = st.columns([1, 5], gap="small")
+    col_next, _ = st.columns([1, 5], gap="medium")
     if col_next.button("Next →", disabled=not is_valid, use_container_width=True, key="pi_next"):
         if is_valid:
             st.session_state.profile_inputs = inputs
@@ -227,25 +329,25 @@ def render_ssq_deep_dive_inputs() -> Dict[str, Any]:
     f: Dict[str, Any] = {}
     # Market & Moat
     st.markdown("**Market & Moat**")
-    c1, c2, c3, c4 = st.columns(4, gap="small")
+    c1, c2, c3, c4 = st.columns(4, gap="medium")
     f["maximum_market_size_usd"]   = c1.number_input("Max Market Size (USD)", value=500_000_000, min_value=0, key="ssq_max_market_size_usd")
     f["market_growth_rate_pct"]    = c2.number_input("Market Growth Rate (%)", value=25.0, min_value=-100.0, max_value=500.0, step=0.5, key="ssq_market_growth_rate_pct")
     f["economic_condition_index"]  = c3.slider("Economic Condition (0–10)", 0.0, 10.0, 6.0, 0.1, key="ssq_economic_condition_index")
     f["readiness_index"]           = c4.slider("Readiness (0–10)", 0.0, 10.0, 7.0, 0.1, key="ssq_readiness_index")
 
-    c5, c6, c7, c8 = st.columns(4, gap="small")
+    c5, c6, c7, c8 = st.columns(4, gap="medium")
     f["originality_index"]         = c5.slider("Originality (0–10)", 0.0, 10.0, 7.0, 0.1, key="ssq_originality_index")
     f["need_index"]                = c6.slider("Need (0–10)", 0.0, 10.0, 8.0, 0.1, key="ssq_need_index")
     f["testing_index"]             = c7.slider("Testing (0–10)", 0.0, 10.0, 6.0, 0.1, key="ssq_testing_index")
     f["pmf_index"]                 = c8.slider("PMF (0–10)", 0.0, 10.0, 7.0, 0.1, key="ssq_pmf_index")
 
-    c9, c10, c11, c12 = st.columns(4, gap="small")
+    c9, c10, c11, c12 = st.columns(4, gap="medium")
     f["scalability_index"]         = c9.slider("Scalability (0–10)", 0.0, 10.0, 7.0, 0.1, key="ssq_scalability_index")
     f["technology_duplicacy_index"]= c10.slider("Tech Duplicacy (0–10)", 0.0, 10.0, 4.0, 0.1, key="ssq_technology_duplicacy_index")
     f["execution_duplicacy_index"] = c11.slider("Execution Duplicacy (0–10)", 0.0, 10.0, 4.0, 0.1, key="ssq_execution_duplicacy_index")
     f["first_mover_advantage_index"]= c12.slider("First Mover Advantage (0–10)", 0.0, 10.0, 6.0, 0.1, key="ssq_fma_index")
 
-    c13, c14, c15, c16 = st.columns(4, gap="small")
+    c13, c14, c15, c16 = st.columns(4, gap="medium")
     f["barriers_to_entry_index"]   = c13.slider("Barriers to Entry (0–10)", 0.0, 10.0, 6.0, 0.1, key="ssq_barriers_to_entry_index")
     f["num_close_competitors"]     = c14.number_input("Close Competitors (count)", value=5, min_value=0, key="ssq_num_close_competitors")
     f["price_advantage_pct"]       = c15.number_input("Price Advantage (%)", value=10.0, min_value=-100.0, max_value=100.0, step=0.5, key="ssq_price_advantage_pct")
@@ -253,26 +355,26 @@ def render_ssq_deep_dive_inputs() -> Dict[str, Any]:
 
     # GTM & Revenue
     st.markdown("**GTM & Revenue**")
-    g1, g2, g3, g4 = st.columns(4, gap="small")
+    g1, g2, g3, g4 = st.columns(4, gap="medium")
     f["mrr_inr"]                    = g1.number_input("MRR (₹)", value=6_000_000, min_value=0, key="ssq_mrr_inr")
     f["sales_growth_pct"]           = g2.number_input("Sales Growth (YoY, %)", value=80.0, min_value=-100.0, max_value=1000.0, step=0.5, key="ssq_sales_growth_pct")
     f["lead_to_close_ratio_pct"]    = g3.number_input("Lead→Close Ratio (%)", value=12.0, min_value=0.0, max_value=100.0, step=0.1, key="ssq_lead_to_close_ratio_pct")
     f["marketing_spend_inr"]        = g4.number_input("Marketing Spend / mo (₹)", value=2_000_000, min_value=0, key="ssq_marketing_spend_inr")
 
-    g5, g6, g7 = st.columns(3, gap="small")
+    g5, g6, g7 = st.columns(3, gap="medium")
     f["ltv_cac_ratio"]              = g5.slider("LTV:CAC", 0.1, 10.0, 3.5, 0.1, key="ssq_ltv_cac_ratio")
     f["customer_growth_pct"]        = g6.number_input("Customer Growth (YoY, %)", value=100.0, min_value=-100.0, max_value=1000.0, step=0.5, key="ssq_customer_growth_pct")
     f["repurchase_ratio_pct"]       = g7.number_input("Repurchase Ratio (%)", value=25.0, min_value=0.0, max_value=100.0, step=0.5, key="ssq_repurchase_ratio_pct")
 
     # Team & ops
     st.markdown("**Team & Ops**")
-    t1, t2, t3, t4 = st.columns(4, gap="small")
+    t1, t2, t3, t4 = st.columns(4, gap="medium")
     f["domain_experience_years"]    = t1.number_input("Domain Experience (yrs)", value=6, min_value=0, max_value=40, key="ssq_domain_experience_years")
     f["quality_of_experience_index"]= t2.slider("Quality of Experience (0–10)", 0.0, 10.0, 7.0, 0.1, key="ssq_quality_of_experience_index")
     f["team_size"]                  = t3.number_input("Team Size", value=50, min_value=1, key="ssq_team_size")
     f["avg_salary_inr"]             = t4.number_input("Avg Salary / yr (₹)", value=1_500_000, min_value=0, key="ssq_avg_salary_inr")
 
-    t5, t6, t7, t8 = st.columns(4, gap="small")
+    t5, t6, t7, t8 = st.columns(4, gap="medium")
     f["equity_dilution_pct"]        = t5.number_input("Equity Dilution to Date (%)", value=22.0, min_value=0.0, max_value=100.0, step=0.5, key="ssq_equity_dilution_pct")
     f["runway_months"]              = t6.number_input("Runway (months)", value=12.0, min_value=0.0, max_value=120.0, step=0.5, key="ssq_runway_months")
     f["cac_inr"]                    = t7.number_input("CAC (₹)", value=8_000, min_value=0, key="ssq_cac_inr")
@@ -280,13 +382,13 @@ def render_ssq_deep_dive_inputs() -> Dict[str, Any]:
 
     # Finance
     st.markdown("**Finance & Ratios**")
-    f1, f2, f3, f4 = st.columns(4, gap="small")
+    f1, f2, f3, f4 = st.columns(4, gap="medium")
     f["mrr_growth_rate_pct"]        = f1.number_input("MRR Growth Rate (YoY, %)", value=90.0, min_value=-100.0, max_value=1000.0, step=0.5, key="ssq_mrr_growth_rate_pct")
     f["de_ratio"]                   = f2.number_input("D/E Ratio", value=0.2, min_value=0.0, max_value=10.0, step=0.05, key="ssq_de_ratio")
     f["gpm_pct"]                    = f3.number_input("Gross Profit Margin (%)", value=60.0, min_value=-100.0, max_value=100.0, step=0.5, key="ssq_gpm_pct")
     f["nr_inr"]                     = f4.number_input("Net Revenue (₹)", value=120_000_000, min_value=0, key="ssq_nr_inr")
 
-    f5, f6, f7 = st.columns(3, gap="small")
+    f5, f6, f7 = st.columns(3, gap="medium")
     f["net_income_ratio_pct"]       = f5.number_input("Net Income Ratio (%)", value=5.0, min_value=-200.0, max_value=200.0, step=0.5, key="ssq_net_income_ratio_pct")
     f["filed_patents"]              = f6.number_input("Filed Patents (count)", value=2, min_value=0, max_value=200, key="ssq_filed_patents")
     f["approved_patents"]           = f7.number_input("Approved Patents (count)", value=0, min_value=0, max_value=200, key="ssq_approved_patents")
@@ -295,11 +397,11 @@ def render_ssq_deep_dive_inputs() -> Dict[str, Any]:
 def render_outcomes_section() -> Dict[str, Any]:
     section_heading("Desired Outcomes from Investment", "Targets and milestones to bake into the IC memo")
     outcomes: Dict[str, Any] = {}
-    c1, c2, c3 = st.columns(3, gap="small")
+    c1, c2, c3 = st.columns(3, gap="medium")
     outcomes["target_arr_usd"]         = c1.number_input("Target ARR (USD)", value=5_000_000, min_value=0, key="outcome_target_arr_usd")
     outcomes["target_burn_multiple"]   = c2.number_input("Target Burn Multiple", value=1.5, min_value=0.0, max_value=20.0, step=0.1, key="outcome_target_burn_multiple")
     outcomes["target_nrr_pct"]         = c3.number_input("Target NRR (%)", value=115.0, min_value=0.0, max_value=500.0, step=0.5, key="outcome_target_nrr_pct")
-    c4, c5, c6 = st.columns(3, gap="small")
+    c4, c5, c6 = st.columns(3, gap="medium")
     outcomes["target_gm_pct"]          = c4.number_input("Target Gross Margin (%)", value=70.0, min_value=-100.0, max_value=100.0, step=0.5, key="outcome_target_gm_pct")
     outcomes["target_runway_months"]   = c5.number_input("Target Runway (months)", value=18.0, min_value=0.0, max_value=120.0, step=0.5, key="outcome_target_runway_months")
     outcomes["milestones"]             = c6.text_input("Top 3 Milestones (comma-separated)", "Marquee logos, New geography, Platform launch", key="outcome_milestones")
@@ -309,36 +411,36 @@ def render_metrics_step(profile: Dict[str, Any]) -> Dict[str, Any]:
     section_heading("Step 2 — Metrics & Financials", "Quantitative context")
     inputs: Dict[str, Any] = {}
 
-    c1, c2, c3 = st.columns(3, gap="small")
+    c1, c2, c3 = st.columns(3, gap="medium")
     inputs['founded_year']          = c1.number_input("Founded Year", 2010, 2025, profile.get('founded_year', 2022), key="metrics_founded_year")
     inputs['total_funding_usd']     = c2.number_input("Total Funding (USD)", value=5_000_000, min_value=0, key="metrics_total_funding_usd")
     inputs['team_size']             = c3.number_input("Team Size", value=50, min_value=1, key="metrics_team_size")
 
-    c4, c5, c6, c7 = st.columns(4, gap="small")
+    c4, c5, c6, c7 = st.columns(4, gap="medium")
     inputs['product_stage_score']   = c4.slider("Product Stage (0-10)", 0.0, 10.0, 8.0, key="metrics_product_stage_score")
     inputs['team_score']            = c5.slider("Execution (0-10)", 0.0, 10.0, 8.0, key="metrics_team_score")
     inputs['moat_score']            = c6.slider("Moat (0-10)", 0.0, 10.0, 7.0, key="metrics_moat_score")
     inputs['investor_quality_score']= c7.slider("Investor Quality (1-10)", 1.0, 10.0, 7.0, key="metrics_investor_quality_score")
 
     st.markdown("**AI Scoring Options (subjectives)**")
-    a1, a2 = st.columns(2, gap="small")
+    a1, a2 = st.columns(2, gap="medium")
     inputs["ai_score_team_execution"]   = a1.checkbox("Use AI to score Team Execution", value=False, key="metrics_ai_score_team_execution")
     inputs["ai_score_investor_quality"] = a2.checkbox("Use AI to score Investor Quality", value=False, key="metrics_ai_score_investor_quality")
-    e1, e2 = st.columns(2, gap="small")
+    e1, e2 = st.columns(2, gap="medium")
     inputs["team_ai_evidence"]          = e1.text_area("Team Evidence (links, bios, achievements)", "", height=70, key="metrics_team_ai_evidence")
     inputs["investor_ai_evidence"]      = e2.text_area("Investor Evidence (cap table, fund brands, track record)", "", height=70, key="metrics_investor_ai_evidence")
 
-    c8, c9, c10 = st.columns(3, gap="small")
+    c8, c9, c10 = st.columns(3, gap="medium")
     inputs['ltv_cac_ratio']         = c8.slider("LTV:CAC", 0.1, 10.0, 3.5, 0.1, key="metrics_ltv_cac_ratio")
     inputs['gross_margin_pct']      = c9.slider("Gross Margin (%)", 0.0, 95.0, 60.0, 1.0, key="metrics_gross_margin_pct")
     inputs['monthly_churn_pct']     = c10.slider("Monthly Churn (%)", 0.0, 20.0, 2.0, 0.1, key="metrics_monthly_churn_pct")
 
-    c11, c12, c13 = st.columns(3, gap="small")
+    c11, c12, c13 = st.columns(3, gap="medium")
     inputs['arr']                   = c11.number_input("Current ARR (₹)", value=80_000_000, min_value=0, key="metrics_arr")
     inputs['burn']                  = c12.number_input("Monthly Burn (₹)", value=10_000_000, min_value=0, key="metrics_burn")
     inputs['cash']                  = c13.number_input("Cash Reserves (₹)", value=90_000_000, min_value=0, key="metrics_cash")
 
-    c14, c15, c16 = st.columns(3, gap="small")
+    c14, c15, c16 = st.columns(3, gap="medium")
     inputs['expected_monthly_growth_pct'] = c14.number_input("Expected Monthly Growth (%)", value=5.0, min_value=-50.0, max_value=200.0, step=0.5, key="metrics_expected_monthly_growth_pct")
     inputs['growth_volatility_pct']       = c15.number_input("Growth Volatility σ (%)", value=3.0, min_value=0.0, max_value=100.0, step=0.5, key="metrics_growth_volatility_pct")
     inputs['lead_to_customer_conv_pct']   = c16.number_input("Lead→Customer Conversion (%)", value=5.0, min_value=0.1, max_value=100.0, step=0.1, key="metrics_lead_to_customer_conv_pct")
@@ -365,7 +467,7 @@ def render_metrics_step(profile: Dict[str, Any]) -> Dict[str, Any]:
     inputs["desired_outcomes"]        = render_outcomes_section()
 
     # Actions
-    col_back, col_run = st.columns([1, 2], gap="small")
+    col_back, col_run = st.columns([1, 2], gap="medium")
     if col_back.button("← Back", key="metrics_back_btn"):
         st.session_state.wizard_step = 0
         st.rerun()
@@ -378,7 +480,7 @@ def render_metrics_step(profile: Dict[str, Any]) -> Dict[str, Any]:
     return inputs
 
 # =========================
-# Deep Dive Tab (Founder + SSQ) — VC-grade content
+# Deep Dive helpers
 # =========================
 def _compute_contributions(deep: Dict[str, Any]) -> Tuple[pd.DataFrame, pd.DataFrame]:
     per = (deep.get("per_factor_scores") or {})
@@ -395,6 +497,88 @@ def _compute_contributions(deep: Dict[str, Any]) -> Tuple[pd.DataFrame, pd.DataF
     watchouts = df.sort_values(["Score (0–10)", "Weighted"], ascending=[True, True]).head(10).copy()
     return strengths, watchouts
 
+# =========================
+# Executive Dashboard and Deep Dive
+# =========================
+def render_summary_dashboard(report):
+    memo = report.get('investment_memo', {}) or {}
+    risk = report.get('risk_matrix', {}) or {}
+    verdict = report.get('final_verdict', {}) or {}
+    ssq = report.get('ssq_report', {}) or {}
+
+    conviction = memo.get('conviction', 'Low')
+    rec_icon = {"High": "🚀", "Medium": "👀", "Low": "✋"}.get(conviction, "❓")
+
+    section_heading("Executive Dashboard")
+    row1 = st.columns([1.1, 0.9, 1.0], gap="medium")
+    with row1[0]:
+        with card():
+            st.markdown(f"### {rec_icon} {memo.get('recommendation','Watchlist')}")
+            st.caption(f"Conviction: {conviction}")
+            st.metric("Valuation", verdict.get("predicted_valuation_range_usd", "N/A"))
+            p = verdict.get('success_probability_percent', 0.0); p = p/100.0 if p > 1 else p
+            st.metric("Success Probability", f"{p:.1%}")
+    with row1[1]:
+        with card():
+            st.markdown("### SSQ")
+            st.metric("Score", f"{ssq.get('ssq_score', 0.0)} / 10")
+            st.progress((ssq.get('ssq_score', 0.0) or 0.0) / 10.0)
+            st.caption(f"Momentum {ssq.get('momentum',0)} · Efficiency {ssq.get('efficiency',0)} · Scalability {ssq.get('scalability',0)}")
+    with row1[2]:
+        with card():
+            create_gauge_chart(
+                ({"High":10,"Medium":6,"Low":3}.get(conviction,5)*0.4 + (ssq.get('ssq_score', 0) or 0)*0.6),
+                "Overall Deal Score",
+                key="gauge_overall_deal_score"
+            )
+            # Show a quick risk bar
+            create_risk_bar_chart(risk, key="risk_bar_chart")
+
+    # Key visuals row
+    inputs = st.session_state.get("inputs", {}) or {}
+    fx = float(os.environ.get("FX_INR_PER_USD", 83) or 83)
+    arr_inr = float(inputs.get("arr", 0) or 0.0)
+    arr_usd = arr_inr / (fx if fx > 0 else 83.0)
+    gm = float(inputs.get("gross_margin_pct", 60.0) or 60.0)
+    growth_ann = annualize_growth(float(inputs.get("expected_monthly_growth_pct", 5.0) or 5.0))
+    traffic = inputs.get("monthly_web_traffic", [])
+
+    section_heading("Key Visuals", "Traffic, Rule of 40, and Risk clarity")
+    row2 = st.columns(3, gap="medium")
+    with row2[0]:
+        with card():
+            create_area_traffic_chart(traffic, key="traffic_area")
+    with row2[1]:
+        with card():
+            create_rule40_waterfall(growth_ann, gm, key="rule40_waterfall")
+    with row2[2]:
+        with card():
+            create_spider_chart(report.get('risk_matrix', {}), "Risk Profile (Radar)", key="radar_risk")
+
+    # Targets vs current bullets
+    desired = inputs.get("desired_outcomes", {}) or {}
+    if desired:
+        section_heading("Targets vs Current", "Bullet gauges with deltas")
+        # Current computed values
+        burn = float(inputs.get("burn", 0.0))
+        burn_mult = (burn * 12.0) / (arr_inr + 1e-6) if arr_inr > 0 else 0.0
+        # Retention proxy (not NRR, but a quick indicator from churn)
+        churn_m = float(inputs.get("monthly_churn_pct", 2.0))
+        annual_ret = pow(1.0 - max(0, min(50.0, churn_m))/100.0, 12) * 100.0
+        colb1, colb2, colb3, colb4 = st.columns(4, gap="medium")
+        with colb1:
+            with card():
+                create_bullet_indicator("ARR (USD)", current=arr_usd, target=float(desired.get("target_arr_usd", arr_usd)), suffix="", key="bullet_arr")
+        with colb2:
+            with card():
+                create_bullet_indicator("Burn Multiple", current=burn_mult, target=float(desired.get("target_burn_multiple", 1.5)), invert=True, key="bullet_burn")
+        with colb3:
+            with card():
+                create_bullet_indicator("NRR proxy (from churn)", current=annual_ret, target=float(desired.get("target_nrr_pct", 110.0)), suffix="%", key="bullet_nrr")
+        with colb4:
+            with card():
+                create_bullet_indicator("Gross Margin", current=gm, target=float(desired.get("target_gm_pct", gm)), suffix="%", key="bullet_gm")
+
 def render_deep_dive_tab(report: Dict[str, Any]):
     deep = report.get("ssq_deep_dive", {}) or {}
     ssq = report.get("ssq_report", {}) or {}
@@ -405,7 +589,7 @@ def render_deep_dive_tab(report: Dict[str, Any]):
     section_heading("Deep Dive", "Founder signals, Speed Scaling factors, and target outcomes")
 
     # Snapshot metrics
-    snap1, snap2, snap3, snap4 = st.columns(4, gap="small")
+    snap1, snap2, snap3, snap4 = st.columns(4, gap="medium")
     with snap1: st.metric("SSQ (Final)", ssq.get("ssq_score", "N/A"))
     with snap2: st.metric("SSQ Deep‑Dive", deep.get("ssq_deep_dive_score", "N/A"))
     with snap3: st.metric("Execution Signals (0–10)", founder.get("execution_signals", "N/A"))
@@ -416,19 +600,19 @@ def render_deep_dive_tab(report: Dict[str, Any]):
         st.markdown("### Founder Profile (LinkedIn + X)")
         if founder:
             st.write(founder.get("summary", ""))
-            cols = st.columns(4, gap="small")
+            cols = st.columns(4, gap="medium")
             cols[0].write(f"Experience: {founder.get('experience_years','N/A')} yrs")
             cols[1].write(f"Leadership roles: {', '.join(founder.get('leadership_roles', [])[:3]) or 'N/A'}")
             cols[2].write(f"Domain expertise: {', '.join(founder.get('domain_expertise', [])[:3]) or 'N/A'}")
             cols[3].write(f"Functional expertise: {', '.join(founder.get('functional_expertise', [])[:3]) or 'N/A'}")
 
-            c1, c2 = st.columns(2, gap="small")
+            c1, c2 = st.columns(2, gap="medium")
             with c1:
                 exits = founder.get("exits", []) or []
                 if exits:
                     st.markdown("**Exits**")
                     for e in exits[:6]:
-                        st.write(f"- {e.get('company','')} — {e.get('type','')} {e.get('year','')}")
+                        st.write(f"- {e.get('company','')} — {e.get('type','').upper()} {e.get('year','')}")
                 ach = founder.get("notable_achievements", []) or []
                 if ach:
                     st.markdown("**Achievements**")
@@ -437,7 +621,9 @@ def render_deep_dive_tab(report: Dict[str, Any]):
                 if fr:
                     st.markdown("**Fundraises Led**")
                     for r in fr[:6]:
-                        st.write(f"- {r.get('company','')} {r.get('round','')} ${r.get('amount_usd',''):,}")
+                        amt = r.get('amount_usd')
+                        amt_str = f"${amt:,}" if isinstance(amt, (int, float)) else "—"
+                        st.write(f"- {r.get('company','')} {r.get('round','')} {amt_str}")
             with c2:
                 edu = founder.get("education", []) or []
                 if edu:
@@ -448,14 +634,10 @@ def render_deep_dive_tab(report: Dict[str, Any]):
                 if risks:
                     st.markdown("**Founder Risk Flags**")
                     for r in risks[:8]: st.write(f"- {r}")
-            refs = founder.get("references", []) or []
-            if refs:
-                st.caption("References:")
-                st.write(", ".join(refs[:8]))
             srcs = founder.get("sources", []) or []
             if srcs:
                 st.markdown("**Founder Sources**")
-                for i, s in enumerate(srcs[:10], start=1):
+                for i, s in enumerate(srcs[:8], start=1):
                     st.markdown(f"- [{i}] [{s.get('title','Source')}]({s.get('url','#')}) — {s.get('snippet','')}")
         else:
             st.info("No founder profile analysis available. Provide a LinkedIn URL in the Company Profile step.")
@@ -467,8 +649,11 @@ def render_deep_dive_tab(report: Dict[str, Any]):
             strengths, watchouts = _compute_contributions(deep)
             contrib_df = strengths.copy()
             contrib_df["Factor"] = contrib_df["Factor"].astype(str)
-            st.plotly_chart(create_bar_chart(contrib_df, "Top Drivers (weighted)", x="Factor", y="Weighted", color="#0A84FF"), use_container_width=True, key="chart_top_drivers")
-            two = st.columns(2, gap="small")
+            fig = go.Figure(go.Bar(x=contrib_df["Weighted"], y=contrib_df["Factor"], orientation="h", marker_color=PALETTE["primary"]))
+            fig.update_layout(template="anthill", title=dict(text="Top Drivers (weighted)"), height=300, yaxis_title="", xaxis_title="Weighted contribution")
+            st.plotly_chart(fig, use_container_width=True, key="chart_top_drivers")
+
+            two = st.columns(2, gap="medium")
             with two[0]:
                 st.markdown("**Strengths (Top 10)**")
                 for _, row in strengths.iterrows():
@@ -488,21 +673,11 @@ def render_deep_dive_tab(report: Dict[str, Any]):
         else:
             st.info("Deep-dive factors were not provided. Fill in the 'Speed Scaling Deep‑Dive' inputs before running analysis.")
 
-    # AI subjective rationale (if used)
-    if ai_diag and (ai_diag.get("rationale") or ai_diag.get("red_flags")):
-        with card():
-            st.markdown("### AI Subjective Assessment")
-            if ai_diag.get("rationale"):
-                st.write(ai_diag["rationale"])
-            if ai_diag.get("red_flags"):
-                st.markdown("**Subjective Red Flags**")
-                st.write(ai_diag["red_flags"])
-
     # Desired outcomes summary
     if desired:
         with card():
             st.markdown("### Desired Outcomes (next 12–18 months)")
-            c1, c2, c3, c4, c5 = st.columns(5, gap="small")
+            c1, c2, c3, c4, c5 = st.columns(5, gap="medium")
             c1.metric("Target ARR (USD)", f"${desired.get('target_arr_usd', 0):,.0f}")
             c2.metric("Target Burn Multiple", desired.get("target_burn_multiple", "—"))
             c3.metric("Target NRR (%)", desired.get("target_nrr_pct", "—"))
@@ -512,7 +687,7 @@ def render_deep_dive_tab(report: Dict[str, Any]):
                 st.caption(f"Milestones: {desired.get('milestones')}")
 
 # =========================
-# Dashboards and analysis
+# Memo utils and Analysis page
 # =========================
 def memo_to_markdown(memo: Dict[str, Any]) -> str:
     lines = ["# Investment Memo"]
@@ -528,41 +703,10 @@ def memo_to_markdown(memo: Dict[str, Any]) -> str:
               f"\nRecommendation: {memo.get('recommendation','')}, Conviction: {memo.get('conviction','')}"]
     return "\n\n".join([x for x in lines if x is not None])
 
-def render_summary_dashboard(report):
-    memo = report.get('investment_memo', {}) or {}
-    risk = report.get('risk_matrix', {}) or {}
-    verdict = report.get('final_verdict', {}) or {}
-    ssq = report.get('ssq_report', {}) or {}
-
-    conviction = memo.get('conviction', 'Low')
-    rec_icon = {"High": "🚀", "Medium": "👀", "Low": "✋"}.get(conviction, "❓")
-
-    section_heading("Executive Dashboard")
-    row1 = st.columns([1.1, 0.9, 1.0], gap="small")
-    with row1[0]:
-        with card():
-            st.markdown(f"### {rec_icon} {memo.get('recommendation','Watchlist')}")
-            st.caption(f"Conviction: {conviction}")
-            st.metric("Valuation", verdict.get("predicted_valuation_range_usd", "N/A"))
-            p = verdict.get('success_probability_percent', 0.0); p = p/100.0 if p > 1 else p
-            st.metric("Success Probability", f"{p:.1%}")
-    with row1[1]:
-        with card():
-            st.markdown("### SSQ")
-            st.metric("Score", f"{ssq.get('ssq_score', 0.0)} / 10")
-            st.progress(ssq.get('ssq_score', 0.0) / 10.0)
-            st.caption(f"Momentum {ssq.get('momentum',0)} · Efficiency {ssq.get('efficiency',0)} · Scalability {ssq.get('scalability',0)}")
-    with row1[2]:
-        with card():
-            risk_item = ("N/A", 0)
-            if risk: risk_item = max(risk.items(), key=lambda x: x[1])
-            st.plotly_chart(create_gauge_chart(({"High":10,"Medium":6,"Low":3}.get(conviction,5)*0.4 + ssq.get('ssq_score', 0)*0.6), "Overall Deal Score"), use_container_width=True)
-            st.caption(f"Highest Risk: {risk_item[0]} ({risk_item[1]:.1f}/10)")
-
 def render_analysis_area(report):
     prof = report.get('profile', None)
     company_name = getattr(prof, 'company_name', 'Company') if prof else 'Company'
-    header_cols = st.columns([3, 1], gap="small")
+    header_cols = st.columns([3, 1], gap="medium")
     header_cols[0].markdown(f"## Diagnostic Report: {company_name}")
     if header_cols[1].button("New Analysis", use_container_width=True, key="new_analysis_btn"):
         keys_to_clear = ['report', 'inputs', 'wizard_step', 'profile_inputs']
@@ -573,7 +717,7 @@ def render_analysis_area(report):
 
     render_summary_dashboard(report)
 
-    # Tabs: consolidate the "Deep Dive" content into one powerful tab
+    # Tabs: Memo, Deep Dive, Research, Inputs, Forecast, ML
     tabs = st.tabs(["Investment Memo", "Deep Dive", "Research & Sources", "Inputs", "Forecast", "ML"])
     memo = report.get('investment_memo', {}) or {}
     sim_res = report.get('simulation', {}) or {}
@@ -583,7 +727,7 @@ def render_analysis_area(report):
         section_heading("Investment Memo")
         with card(): st.markdown(memo.get('executive_summary', 'Not available.'), unsafe_allow_html=True)
         with st.expander("Full memo"):
-            cols = st.columns(2, gap="small")
+            cols = st.columns(2, gap="medium")
             detail_fields = ["investment_thesis","market","product","traction","unit_economics","gtm","competition","team","risks","catalysts","round_dynamics","use_of_proceeds","valuation_rationale","kpis_next_12m","exit_paths"]
             for i, k in enumerate(detail_fields):
                 if memo.get(k):
@@ -592,10 +736,14 @@ def render_analysis_area(report):
                         st.write(memo[k])
         st.download_button("Download Memo (Markdown)", data=memo_to_markdown(memo), file_name=f"{company_name}_Investment_Memo.md", mime="text/markdown", key="memo_dl_btn")
 
-        # Runway chart within memo tab for quick view
         with st.expander("Financial Runway (quick view)"):
             ts = sim_res.get('time_series_data', pd.DataFrame())
-            if not ts.empty: st.line_chart(ts.set_index('Month'))
+            if not ts.empty:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=ts["Month"], y=ts["Cash Reserves (₹)"], name="Cash Reserves", line=dict(color=PALETTE["accent"])))
+                fig.add_trace(go.Scatter(x=ts["Month"], y=ts["Monthly Revenue (₹)"], name="Monthly Revenue", line=dict(color=PALETTE["primary"])))
+                fig.update_layout(template="anthill", height=260, xaxis_title="Month")
+                st.plotly_chart(fig, use_container_width=True, key="runway_dual_axis")
 
     with tabs[1]:
         render_deep_dive_tab(report)
@@ -608,7 +756,7 @@ def render_analysis_area(report):
 
     with tabs[4]:
         forecast = report.get('fundraise_forecast', {}) or {}
-        col1, col2, col3 = st.columns(3, gap="small")
+        col1, col2, col3 = st.columns(3, gap="medium")
         col1.metric("Round Likelihood (6m)", f"{forecast.get('round_likelihood_6m', 0.0):.1%}")
         col2.metric("Round Likelihood (12m)", f"{forecast.get('round_likelihood_12m', 0.0):.1%}")
         col3.metric("Time to Next Round", f"{forecast.get('expected_time_to_next_round_months', 0.0):.1f} months")
@@ -616,7 +764,7 @@ def render_analysis_area(report):
     with tabs[5]:
         ml = report.get("ml_predictions", {}) or {}
         online = ml.get("online", {}) or {}
-        col1, col2, col3 = st.columns(3, gap="small")
+        col1, col2, col3 = st.columns(3, gap="medium")
         col1.metric("Online Likelihood (12m)", f"{online.get('round_probability_12m', 0.0):.1%}")
         col2.metric("Online Likelihood (6m)", f"{online.get('round_probability_6m', 0.0):.1%}")
         val = online.get("predicted_valuation_usd", None)
@@ -630,7 +778,7 @@ async def main():
 
     if st.session_state.view == 'input':
         render_pdf_quick_analysis()
-        step_cols = st.columns(2, gap="small")
+        step_cols = st.columns(2, gap="medium")
         step_cols[0].markdown("**1) Company Profile** ✅" if st.session_state.wizard_step == 1 else "**1) Company Profile**")
         step_cols[1].markdown("**2) Metrics & Financials**" + (" ✅" if st.session_state.wizard_step == 1 else ""))
 
