@@ -9,12 +9,14 @@ from urllib.parse import urlparse
 
 
 def _first_json(text: str) -> Optional[Dict[str, Any]]:
+    # Prefer fenced JSON if present
     m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL | re.IGNORECASE)
     if m:
         try:
             return json.loads(m.group(1))
         except Exception:
             pass
+    # Greedy object fallback
     m = re.search(r"\{.*\}", text, flags=re.DOTALL)
     if m:
         try:
@@ -25,6 +27,7 @@ def _first_json(text: str) -> Optional[Dict[str, Any]]:
 
 
 def _sleep_backoff(attempt: int) -> None:
+    # 1.5s, 3.0s, 4.5s, capped at 6s
     time.sleep(min(1.5 * (attempt + 1), 6.0))
 
 
@@ -129,6 +132,7 @@ class DeepResearchService:
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         last_err = ""
 
+        # 1) With tools
         for i in range(2):
             try:
                 return self._chat_request(messages, use_tools=True), "chat+tools"
@@ -144,6 +148,7 @@ class DeepResearchService:
                 _sleep_backoff(i)
                 continue
 
+        # 2) Without tools
         for i in range(2):
             try:
                 return self._chat_request(messages, use_tools=False), "chat-no-tools"
@@ -152,6 +157,7 @@ class DeepResearchService:
                 _sleep_backoff(i)
                 continue
 
+        # 3) Responses endpoint fallback
         for i in range(2):
             try:
                 return self._responses_request(messages), "responses"
