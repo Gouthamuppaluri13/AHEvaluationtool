@@ -26,7 +26,7 @@ for k in ["HUGGINGFACE_MODEL_ID", "MODEL_ARTIFACT_NAME", "MODEL_ASSET_URL", "FX_
 # Hero
 hero(
     "Anthill AI+ Evaluation",
-    "Minimal, elegant, glass‑themed VC copilot with deep web/X research."
+    "V 2.2"
 )
 
 @st.cache_resource
@@ -506,3 +506,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
