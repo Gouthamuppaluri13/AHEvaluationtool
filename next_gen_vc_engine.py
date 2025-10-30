@@ -1,16 +1,12 @@
 """
-Next-generation VC engine using Grok for all deep-dive research and memo.
-- GrokResearchService performs exhaustive research across X and the web and returns JSON (summary, sections, sources, memo).
-- No Gemini dependency: all analysis and memo come from Grok + deterministic synthesis.
-- Deterministic valuations: FX-aware ARR multiples adjusted by SSQ, growth, and margin.
-- Success probability derived from SSQ and risk.
-- External data (Alpha Vantage) remains optional and guarded.
+VC engine with provider-agnostic deep research and IC-grade memo.
+- Uses an external DeepResearchService (X + web) to build deep-dive and memo.
+- Deterministic valuation synthesis (FX-aware) and probability from SSQ + risk.
+- External services (predictor, comps, enrichment, forecast) are optional and guarded.
 """
 
 import logging
 import os
-import json
-import re
 import asyncio
 from dataclasses import dataclass, asdict
 from enum import Enum
@@ -19,7 +15,7 @@ from typing import Dict, Any, Optional, List
 import numpy as np
 import pandas as pd
 
-# Optional deps: alpha_vantage
+# Optional: Alpha Vantage
 try:
     from alpha_vantage.timeseries import TimeSeries  # type: ignore
     HAS_ALPHA = True
@@ -27,31 +23,28 @@ except Exception:
     TimeSeries = None  # type: ignore
     HAS_ALPHA = False
 
-# App-local services (guarded)
+# Optional app-local services (guarded)
 try:
     from services.model_registry import ModelRegistry  # type: ignore
 except Exception:
     ModelRegistry = None  # type: ignore
-
 try:
     from models.online_predictor import OnlinePredictor  # type: ignore
 except Exception:
     OnlinePredictor = None  # type: ignore
-
 try:
     from services.fundraise_forecast import FundraiseForecastService  # type: ignore
 except Exception:
     FundraiseForecastService = None  # type: ignore
-
 try:
     from services.data_enrichment import DataEnrichmentService  # type: ignore
 except Exception:
     DataEnrichmentService = None  # type: ignore
-
+# Deep research (no provider branding in UI)
 try:
-    from services.grok_research import GrokResearchService  # type: ignore
+    from services.deep_research import DeepResearchService  # type: ignore
 except Exception:
-    GrokResearchService = None  # type: ignore
+    DeepResearchService = None  # type: ignore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -149,15 +142,14 @@ class SpeedscaleQuotientCalculator:
 
 class ExternalDataIntegrator:
     def __init__(self, key: Optional[str]):
-        self.key = key
         self.enabled = bool(key) and HAS_ALPHA and TimeSeries is not None
         self.ts = TimeSeries(key=key, output_format="pandas") if self.enabled else None  # type: ignore
         if not self.enabled:
-            logger.info("[engine] Alpha Vantage disabled or key missing.")
+            logger.info("[engine] Public comps API disabled or key missing.")
 
     def get_public_comps(self, ticker: str) -> Dict[str, Any]:
         if not self.enabled or self.ts is None:
-            return {"notice": "Alpha Vantage unavailable. Skipping comps.", "ticker": ticker}
+            return {"notice": "Public comps unavailable.", "ticker": ticker}
         try:
             data, meta = self.ts.get_quote_endpoint(symbol=ticker)  # type: ignore
             price = float(data["05. price"].iloc[-1])
@@ -206,8 +198,8 @@ class MitigateClimateChangeStrategy(FocusAreaStrategy):
 
 
 class NextGenVCEngine:
-    def __init__(self, tavily_key: Optional[str], av_key: Optional[str], gemini_key_unused: Optional[str], grok_key: Optional[str] = None):
-        # Predictors (optional)
+    def __init__(self, tavily_key: Optional[str], av_key: Optional[str], _unused: Optional[str], research_key: Optional[str] = None):
+        # Optional predictor
         self.online_predictor = None
         if ModelRegistry is not None and OnlinePredictor is not None:
             try:
@@ -216,7 +208,7 @@ class NextGenVCEngine:
                 self.online_predictor = OnlinePredictor(joblib_path)
                 logger.info("[engine] OnlinePredictor initialized.")
             except Exception as e:
-                logger.warning(f"[engine] OnlinePredictor init failed: {e}. Falling back.")
+                logger.warning(f"[engine] OnlinePredictor init failed: {e}")
 
         # Services
         self.data_integrator = ExternalDataIntegrator(av_key)
@@ -225,24 +217,25 @@ class NextGenVCEngine:
             try:
                 self.enrichment = DataEnrichmentService(tavily_key)
             except Exception as e:
-                logger.warning(f"[engine] DataEnrichmentService disabled: {e}")
+                logger.warning(f"[engine] Enrichment disabled: {e}")
 
         self.fundraise_forecast = None
         if FundraiseForecastService is not None:
             try:
                 self.fundraise_forecast = FundraiseForecastService()
             except Exception as e:
-                logger.warning(f"[engine] FundraiseForecastService disabled: {e}")
+                logger.warning(f"[engine] Fundraise forecast disabled: {e}")
 
-        # GROK for research + memo
-        self.grok = None
-        if GrokResearchService is not None:
+        # Deep research (provider-agnostic)
+        self.research = None
+        if DeepResearchService is not None:
             try:
-                self.grok = GrokResearchService(grok_key or os.getenv("GROK_API_KEY", ""))
+                # Accept RESEARCH_API_KEY or GROK_API_KEY from env/secrets
+                self.research = DeepResearchService(research_key or os.getenv("RESEARCH_API_KEY") or os.getenv("GROK_API_KEY"))
             except Exception as e:
-                logger.warning(f"[engine] GrokResearchService disabled: {e}")
+                logger.warning(f"[engine] DeepResearchService disabled: {e}")
 
-        # Strategy map
+        # Focus strategies
         self.strategies: Dict[str, FocusAreaStrategy] = {
             FocusArea.LIVE_HEALTHY.value: LiveHealthyStrategy(),
             FocusArea.MITIGATE_CLIMATE_CHANGE.value: MitigateClimateChangeStrategy(),
@@ -269,8 +262,8 @@ class NextGenVCEngine:
                 return fp
         return FounderPersonality.EXECUTOR
 
-    # ------------- Deterministic valuation + probability helpers -------------
-    def _fx_rate(self, inputs: Dict[str, Any]) -> float:
+    # ---------- Deterministic valuation + probability ----------
+    def _fx_rate(self) -> float:
         try:
             return float(os.environ.get("FX_INR_PER_USD") or "") or 83.0
         except Exception:
@@ -295,7 +288,7 @@ class NextGenVCEngine:
         return float(max(0.03, min(0.97, base)))
 
     def _deterministic_verdict(self, inputs: Dict[str, Any], profile: AdvancedStartupProfile, ssq: Dict[str, float], risks: Dict[str, float]) -> Dict[str, Any]:
-        fx = self._fx_rate(inputs)
+        fx = self._fx_rate()
         arr_in = float(inputs.get("arr", 0.0))
         currency = str(inputs.get("currency", "INR")).upper()
         arr_usd = arr_in if currency == "USD" else (arr_in / (fx if fx > 0 else 83.0))
@@ -312,7 +305,6 @@ class NextGenVCEngine:
             "success_probability_percent": round(prob, 1),
         }
 
-    # ------------------------------- Main flow -------------------------------
     async def comprehensive_analysis(self, inputs: Dict[str, Any], comps_ticker: str) -> Dict[str, Any]:
         # Strategy + profile
         fa = self._coerce_focus_area(inputs.get("focus_area"))
@@ -338,7 +330,7 @@ class NextGenVCEngine:
         # SSQ
         ssq = SpeedscaleQuotientCalculator(inputs, profile).calculate()
 
-        # Optional predictions
+        # Optional online predictor
         async def _run_online() -> Dict[str, Any]:
             if self.online_predictor is None:
                 return {}
@@ -348,7 +340,7 @@ class NextGenVCEngine:
                 logger.warning(f"[engine] Online predictor failed: {e}")
                 return {}
 
-        # Enrichment (optional) and Grok research in parallel
+        # Enrichment (optional) and Deep Research in parallel
         async def _run_enrichment() -> Dict[str, Any]:
             if self.enrichment is None:
                 return {}
@@ -358,37 +350,37 @@ class NextGenVCEngine:
                 logger.warning(f"[engine] Enrichment failed: {e}")
                 return {}
 
-        async def _run_grok() -> Dict[str, Any]:
-            if self.grok is None:
-                return {"notice": "Grok service not available. Set GROK_API_KEY."}
+        async def _run_research() -> Dict[str, Any]:
+            if self.research is None:
+                return {"notice": "External research service not available. Add RESEARCH_API_KEY."}
             try:
                 return await asyncio.to_thread(
-                    self.grok.research,
+                    self.research.research,
                     profile.company_name,
                     str(inputs.get("sector", "")),
                     str(inputs.get("location", "")),
                     str(inputs.get("product_desc", "")),
                 )
             except Exception as e:
-                logger.warning(f"[engine] Grok research failed: {e}")
-                return {"error": f"Grok research crashed: {e}"}
+                logger.warning(f"[engine] Deep research failed: {e}")
+                return {"error": "Research unavailable right now."}
 
         online_task = asyncio.create_task(_run_online())
         enrich_task = asyncio.create_task(_run_enrichment())
-        grok_task = asyncio.create_task(_run_grok())
+        research_task = asyncio.create_task(_run_research())
 
-        online_pred, enrichment, grok_res = await asyncio.gather(online_task, enrich_task, grok_task)
+        online_pred, enrichment, research_res = await asyncio.gather(online_task, enrich_task, research_task)
 
-        # Market deep-dive comes from Grok (primary). Enrichment attaches auxiliary signals if available.
+        # Market deep-dive: primarily from research; enrichment attached if present.
         market_analysis: Dict[str, Any] = {}
-        if isinstance(grok_res, dict):
-            market_analysis["grok_research"] = grok_res
+        if isinstance(research_res, dict):
+            market_analysis["external_research"] = research_res
         if isinstance(enrichment, dict) and enrichment:
             market_analysis["indian_funding_trends"] = enrichment.get("indian_funding_trends", {})
             market_analysis["recent_news"] = enrichment.get("recent_news", {})
             market_analysis["india_funding_dataset_context"] = enrichment.get("india_funding_dataset_context", {})
 
-        # Risk matrix + deterministic verdict
+        # Risk + verdict
         risk = {
             "Market": float(profile.market_risk_score),
             "Execution": float(10 - profile.adaptability_score),
@@ -431,26 +423,51 @@ class NextGenVCEngine:
         forecast_task = asyncio.create_task(_run_forecast())
         sim_res, comps_res, forecast = await asyncio.gather(sim_task, comps_task, forecast_task)
 
-        # Investment memo comes from Grok 'memo' if available, else synthesize from Grok summary + deterministic data
-        memo_from_grok = (market_analysis.get("grok_research", {}) or {}).get("memo", {}) if market_analysis else {}
-        if isinstance(memo_from_grok, dict) and memo_from_grok.get("executive_summary"):
-            investment_memo = memo_from_grok
+        # Build memo: use research_res["memo"] if present; else synthesize from sections + numeric context.
+        research_memo = (market_analysis.get("external_research", {}) or {}).get("memo", {}) if market_analysis else {}
+        memo = {}
+        if isinstance(research_memo, dict) and research_memo:
+            memo = {
+                "executive_summary": research_memo.get("executive_summary", ""),
+                "bull_case_narrative": research_memo.get("catalysts", "") or research_memo.get("investment_thesis", ""),
+                "bear_case_narrative": research_memo.get("risks", ""),
+                "recommendation": research_memo.get("recommendation", "Watchlist"),
+                "conviction": research_memo.get("conviction", "Medium"),
+                # include the full IC memo fields for downstream use
+                **{k: v for k, v in research_memo.items() if k not in {"executive_summary"}}
+            }
         else:
-            grok_summary = (market_analysis.get("grok_research", {}) or {}).get("summary", "")
+            sections = (market_analysis.get("external_research", {}) or {}).get("sections", {}) if market_analysis else {}
+            ex_summary = (market_analysis.get("external_research", {}) or {}).get("summary", "")
             prob = final_verdict.get("success_probability_percent", 50.0)
-            rec = "Invest" if prob >= 62.0 else ("Watchlist" if prob >= 45.0 else "Pass")
+            recommendation = "Invest" if prob >= 62.0 else ("Watchlist" if prob >= 45.0 else "Pass")
             conviction = "High" if prob >= 75.0 else ("Medium" if prob >= 55.0 else "Low")
-            investment_memo = {
-                "executive_summary": (grok_summary or "Deep dive unavailable; see quantitative summary and risks."),
-                "bull_case_narrative": "If product momentum and margin profile improve, the company can command stage-appropriate premium ARR multiples.",
-                "bear_case_narrative": "Execution slippage, competitive intensity, or macro conditions could compress multiples and delay fundraising.",
-                "recommendation": rec,
+            memo = {
+                "executive_summary": ex_summary or "Deep research unavailable; see quantitative summary and risks.",
+                "investment_thesis": sections.get("overview", ""),
+                "market": sections.get("business_model", "") or "",
+                "product": sections.get("products", ""),
+                "traction": sections.get("traction", ""),
+                "unit_economics": sections.get("unit_economics", ""),
+                "gtm": sections.get("gtm", ""),
+                "competition": sections.get("competitors", ""),
+                "team": sections.get("leadership", ""),
+                "risks": sections.get("risks", ""),
+                "catalysts": sections.get("roadmap", "") or sections.get("partnerships", ""),
+                "round_dynamics": sections.get("funding", ""),
+                "use_of_proceeds": "",
+                "valuation_rationale": "",
+                "kpis_next_12m": "",
+                "exit_paths": "",
+                "bull_case_narrative": sections.get("moat", "") or sections.get("roadmap", ""),
+                "bear_case_narrative": sections.get("risks", ""),
+                "recommendation": recommendation,
                 "conviction": conviction,
             }
 
         return {
             "final_verdict": final_verdict,
-            "investment_memo": investment_memo,
+            "investment_memo": memo,
             "risk_matrix": risk,
             "simulation": sim_res,
             "market_deep_dive": market_analysis,
