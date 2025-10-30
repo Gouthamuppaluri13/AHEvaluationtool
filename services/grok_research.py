@@ -11,77 +11,47 @@ DEFAULT_GROK_API_URL = os.getenv("GROK_API_URL", "https://api.x.ai/v1/chat/compl
 
 class GrokResearchService:
     """
-    A thin wrapper around xAI Grok chat completions to perform web research and
-    synthesize a structured, citation-rich bundle for a startup.
+    Wrapper for xAI Grok chat completions to perform a comprehensive startup deep dive.
 
-    Notes:
-    - Expects GROK_API_KEY in environment or provided in __init__.
-    - Tries to leverage browsing if the API supports it; otherwise asks the model
-      to produce sources it used. If the API rejects tool usage, we still get a useful summary.
-    - Return shape:
-      {
-        "summary": str,
-        "sections": {
-          "overview": str,
-          "products": str,
-          "business_model": str,
-          "funding": str,
-          "investors": str,
-          "leadership": str,
-          "traction": str,
-          "customers": str,
-          "competitors": str,
-          "moat": str,
-          "partnerships": str,
-          "risks": str,
-          "regulatory": str,
-          "controversies": str,
-          "hiring": str,
-          "tech_stack": str
-        },
-        "sources": [
-          {"title": str, "url": str, "snippet": str, "confidence": float}
-        ]
-      }
+    What it does:
+    - Instructs Grok to deeply research across X (Twitter), the broader web, filings,
+      reputable news, funding databases, job boards, engineering blogs, etc.
+    - Returns STRICT JSON with:
+        - summary (concise overview)
+        - sections (overview/products/business_model/funding/.../tech_stack)
+        - sources (title, url, snippet, confidence)
+        - memo: executive_summary, bull_case_narrative, bear_case_narrative, recommendation, conviction
+    - Uses an OpenAI-compatible endpoint shape (xAI mirrors it).
     """
 
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None, api_url: Optional[str] = None):
         self.api_key = api_key or os.getenv("GROK_API_KEY", "")
         self.model = model or DEFAULT_GROK_MODEL
         self.api_url = api_url or DEFAULT_GROK_API_URL
-        self.session = requests.Session()
         self.enabled = bool(self.api_key)
+        self._session = requests.Session()
 
-    def _request(self, messages: list[dict], use_web: bool = True, temperature: float = 0.2, max_tokens: int = 1400) -> str:
-        """
-        Calls xAI's chat completions endpoint. This uses an OpenAI-compatible shape as xAI mirrors it.
-        If the API rejects tools, we still receive content.
-        """
+    def _request(self, messages: list[dict], temperature: float = 0.2, max_tokens: int = 2200) -> str:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
         payload: Dict[str, Any] = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": max_tokens
+            "max_tokens": max_tokens,
+            # Some Grok deployments support tools:web_search (OpenAI-compatible). If unsupported, server ignores.
+            "tools": [{"type": "web_search"}],
+            "tool_choice": "auto",
         }
-        # Some xAI deployments support browsing via tools; if unsupported, the API will ignore this.
-        if use_web:
-            payload["tools"] = [{"type": "web_search"}]
-            payload["tool_choice"] = "auto"
-
-        resp = self.session.post(self.api_url, headers=headers, data=json.dumps(payload), timeout=60)
+        resp = self._session.post(self.api_url, headers=headers, data=json.dumps(payload), timeout=120)
         resp.raise_for_status()
         data = resp.json()
-        # OpenAI-compatible: choices[].message.content
-        content = ""
         try:
-            content = data["choices"][0]["message"]["content"]
+            return data["choices"][0]["message"]["content"] or ""
         except Exception:
-            content = json.dumps(data)
-        return content or ""
+            return json.dumps(data)
 
     def research(self, company: str, sector: str, location: str, description: str) -> Dict[str, Any]:
         if not self.enabled:
@@ -89,45 +59,23 @@ class GrokResearchService:
                 "notice": "Grok API key not configured. Set GROK_API_KEY in secrets or environment.",
                 "summary": "",
                 "sections": {},
-                "sources": []
+                "sources": [],
+                "memo": {},
             }
 
         system = (
             "You are Grok, an expert startup analyst with live web access. "
-            "Conduct thorough research with recent sources and return STRICT JSON only. "
-            "Cite diverse sources with title, url, a 1–2 sentence snippet, and a confidence 0–1. "
-            "Make sure numbers are normalized and dates are recent."
+            "Do an exhaustive deep dive on the startup using every public source you can: "
+            "X (Twitter), company and product sites, docs, engineering blogs, job boards, "
+            "press releases, reputable news, funding databases, and filings. "
+            "Normalize currencies/units, include recent dates, avoid speculation, and PROVIDE STRICT JSON ONLY."
         )
         user = f"""
-Research startup comprehensively and return ONLY JSON with keys: summary, sections, sources.
+Research the startup thoroughly and produce a structured, citation-rich deep dive and an investment memo.
+You MUST browse and synthesize across X and the web. Return ONLY JSON with the following shape:
 
-Entity:
-- Name: {company}
-- Sector: {sector}
-- Location: {location}
-- Description: {description}
-
-Sections to produce (concise paragraphs, no bullets):
-- overview
-- products
-- business_model
-- funding
-- investors
-- leadership
-- traction
-- customers
-- competitors
-- moat
-- partnerships
-- risks
-- regulatory
-- controversies
-- hiring
-- tech_stack
-
-Return JSON schema:
 {{
-  "summary": "...",
+  "summary": "6–10 sentences capturing product, market, traction, milestones, unit-economics hints, and open questions.",
   "sections": {{
     "overview": "...",
     "products": "...",
@@ -147,38 +95,60 @@ Return JSON schema:
     "tech_stack": "..."
   }},
   "sources": [
-    {{"title": "...", "url": "https://...", "snippet": "...", "confidence": 0.72}}
-  ]
+    {{"title": "Source Title", "url": "https://...", "snippet": "1–2 sentences with date if relevant", "confidence": 0.0}}
+  ],
+  "memo": {{
+    "executive_summary": "A crisp summary tailored for VC IC doc.",
+    "bull_case_narrative": "Specific upside levers, catalysts, and conditions for outperformance.",
+    "bear_case_narrative": "Key failure modes and downside scenarios.",
+    "recommendation": "Invest|Watchlist|Pass",
+    "conviction": "High|Medium|Low"
+  }}
 }}
 
+Entity:
+- Name: {company}
+- Sector: {sector}
+- Location: {location}
+- Description: {description}
+
 Rules:
-- Output strictly valid JSON. No prose outside JSON.
-- Prefer official pages, filings, reputable news, funding databases.
-- If unknown, set empty string and proceed.
-        """.strip()
+- STRICT JSON ONLY. No prose outside the JSON object.
+- Include 10–20 diverse sources with URLs and short snippets (with dates where relevant). Confidence 0–1.
+- If a detail is unknown, leave an empty string instead of guessing.
+- Prefer info from the last 12–24 months.
+""".strip()
 
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ]
+
         try:
-            content = self._request(messages, use_web=True)
-            # Extract first JSON object from the response
+            content = self._request(messages)
             m = re.search(r"\{.*\}", content, flags=re.DOTALL)
             if not m:
-                raise ValueError("No JSON in Grok response")
+                raise ValueError("No JSON object found in Grok response.")
             data = json.loads(m.group(0))
             if not isinstance(data, dict):
-                raise ValueError("Invalid Grok JSON payload")
-            # Minimal normalization
+                raise ValueError("Grok returned a non-dict JSON payload.")
+            # Defaults + light sanitation
             data.setdefault("summary", "")
             data.setdefault("sections", {})
             data.setdefault("sources", [])
+            data.setdefault("memo", {})
+            if not isinstance(data["sections"], dict):
+                data["sections"] = {}
+            if not isinstance(data["sources"], list):
+                data["sources"] = []
+            if not isinstance(data["memo"], dict):
+                data["memo"] = {}
             return data
         except Exception as e:
             return {
                 "error": f"Grok research failed: {e}",
                 "summary": "",
                 "sections": {},
-                "sources": []
+                "sources": [],
+                "memo": {},
             }
