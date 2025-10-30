@@ -1,9 +1,6 @@
 """
-VC engine with research-amplified IC memo, AI-scored subjectives, valuation assist, and Speed Scaling Deep-Dive.
-- DeepResearchService powers: research, memo refinement, AI subjective scoring, valuation assist, SSQ insights.
-- Deterministic valuation: stage/sector bands + SSQ, growth, margin, retention, burn efficiency, FX-normalized ARR, blended with AI suggested multiples.
-- Probability: logistic over SSQ, burn multiple, churn, Rule of 40, and stage.
-- SSQ Deep-Dive: compute per-factor scores and overall, include in memo.
+VC engine with research-amplified IC memo, AI-scored subjectives, valuation assist, Speed Scaling Deep-Dive,
+and Founder profile intelligence (LinkedIn + X) that influences execution/network quality.
 """
 
 import logging
@@ -41,7 +38,6 @@ try:
     from services.data_enrichment import DataEnrichmentService  # type: ignore
 except Exception:
     DataEnrichmentService = None  # type: ignore
-# Deep research
 try:
     from services.deep_research import DeepResearchService  # type: ignore
 except Exception:
@@ -69,9 +65,9 @@ class AdvancedStartupProfile:
     stage: str
     sector: str
     focus_area: FocusArea
-    annual_revenue: float           # ARR in INR by convention
-    monthly_burn: float             # INR
-    cash_reserves: float            # INR
+    annual_revenue: float
+    monthly_burn: float
+    cash_reserves: float
     team_size: int
     founder_personality_type: FounderPersonality
     product_maturity_score: float
@@ -133,50 +129,16 @@ class SpeedscaleQuotientCalculator:
 
 
 class SSQDeepDiveCalculator:
-    """
-    Compute per-factor scores (0–10) and overall deep SSQ from detailed inputs.
-    """
-    # Default weights across categories; can be optionally adjusted by AI insights
     BASE_WEIGHTS = {
-        "Maximum Market Size": 0.04,
-        "Market Growth Rate": 0.04,
-        "Economic Condition": 0.02,
-        "Readiness": 0.03,
-        "Originality": 0.03,
-        "Need": 0.03,
-        "Testing": 0.02,
-        "Product - Market Fit": 0.06,
-        "Scalability": 0.05,
-        "Technology Duplicacy": 0.03,   # lower duplicacy -> higher score
-        "Execution Duplicacy": 0.03,    # lower duplicacy -> higher score
-        "First Mover Advantage": 0.03,
-        "Barriers to Entry": 0.03,
-        "Number of Close Competitors": 0.03,  # fewer -> higher score
-        "Percentage Price Advantage": 0.03,
-        "Monthly Recurring Revenue": 0.05,
-        "Sales Growth": 0.04,
-        "Lead to Close Ratio": 0.03,
-        "Channels of Promotion": 0.02,
-        "Marketing Expenditure": 0.02,  # lower spend per $MRR -> higher score
-        "LTV/CAC": 0.05,
-        "Customer Growth": 0.03,
-        "Repurchase Ratio": 0.03,
-        "Experience with Domain": 0.02,
-        "Quality of Experience in Domain": 0.03,
-        "Size": 0.01,
-        "Salaries": 0.01,               # lower cost for same output -> higher score
-        "Fundraise": 0.02,
-        "Equity Dilution": 0.02,        # lower dilution -> higher score
-        "Runway": 0.03,
-        "CAC": 0.03,                    # lower CAC -> higher score
-        "Variance Analysis": 0.02,      # stable performance -> higher score
-        "MRR Growth Rate": 0.04,
-        "D/E Ratio": 0.02,              # lower -> safer
-        "GPM": 0.04,
-        "NR": 0.02,
-        "Net Income Ratio": 0.02,
-        "Filed Patents": 0.02,
-        "Approved Patents": 0.03,
+        "Maximum Market Size": 0.04, "Market Growth Rate": 0.04, "Economic Condition": 0.02, "Readiness": 0.03,
+        "Originality": 0.03, "Need": 0.03, "Testing": 0.02, "Product - Market Fit": 0.06, "Scalability": 0.05,
+        "Technology Duplicacy": 0.03, "Execution Duplicacy": 0.03, "First Mover Advantage": 0.03, "Barriers to Entry": 0.03,
+        "Number of Close Competitors": 0.03, "Percentage Price Advantage": 0.03, "Monthly Recurring Revenue": 0.05,
+        "Sales Growth": 0.04, "Lead to Close Ratio": 0.03, "Channels of Promotion": 0.02, "Marketing Expenditure": 0.02,
+        "LTV/CAC": 0.05, "Customer Growth": 0.03, "Repurchase Ratio": 0.03, "Experience with Domain": 0.02,
+        "Quality of Experience in Domain": 0.03, "Size": 0.01, "Salaries": 0.01, "Fundraise": 0.02, "Equity Dilution": 0.02,
+        "Runway": 0.03, "CAC": 0.03, "Variance Analysis": 0.02, "MRR Growth Rate": 0.04, "D/E Ratio": 0.02,
+        "GPM": 0.04, "NR": 0.02, "Net Income Ratio": 0.02, "Filed Patents": 0.02, "Approved Patents": 0.03,
     }
 
     def __init__(self, inputs: Dict[str, Any]):
@@ -196,8 +158,7 @@ class SSQDeepDiveCalculator:
     def _score(self) -> Dict[str, float]:
         i = self.i
         s: Dict[str, float] = {}
-        # Normalize to 0..1 then map to 0..10
-        s["Maximum Market Size"] = self._clamp01(self._nz(i.get("maximum_market_size_usd"), 0) / 1_000_000_000) * 10.0  # cap at $1B for normalization
+        s["Maximum Market Size"] = self._clamp01(self._nz(i.get("maximum_market_size_usd"), 0) / 1_000_000_000) * 10.0
         s["Market Growth Rate"] = self._clamp01(self._nz(i.get("market_growth_rate_pct"), 0) / 100.0) * 10.0
         s["Economic Condition"] = self._clamp01(self._nz(i.get("economic_condition_index"), 5) / 10.0) * 10.0
         s["Readiness"] = self._clamp01(self._nz(i.get("readiness_index"), 5) / 10.0) * 10.0
@@ -211,8 +172,7 @@ class SSQDeepDiveCalculator:
         s["First Mover Advantage"] = self._clamp01(self._nz(i.get("first_mover_advantage_index"), 5) / 10.0) * 10.0
         s["Barriers to Entry"] = self._clamp01(self._nz(i.get("barriers_to_entry_index"), 5) / 10.0) * 10.0
         s["Number of Close Competitors"] = (1.0 - self._clamp01(self._nz(i.get("num_close_competitors"), 5) / 10.0)) * 10.0
-        s["Percentage Price Advantage"] = self._clamp01(self._nz(i.get("price_advantage_pct"), 0) / 50.0) * 10.0  # cap at 50%
-        # GTM/Revenue
+        s["Percentage Price Advantage"] = self._clamp01(self._nz(i.get("price_advantage_pct"), 0) / 50.0) * 10.0
         mrr = self._nz(i.get("mrr_inr"), 0.0)
         burn = self._nz(i.get("burn"), 0.0)
         s["Monthly Recurring Revenue"] = self._clamp01(mrr / (burn + 1e-6)) * 10.0 if burn > 0 else 5.0
@@ -223,7 +183,6 @@ class SSQDeepDiveCalculator:
         s["LTV/CAC"] = self._clamp01(self._nz(i.get("ltv_cac_ratio"), 3.0) / 6.0) * 10.0
         s["Customer Growth"] = self._clamp01(self._nz(i.get("customer_growth_pct"), 0) / 200.0) * 10.0
         s["Repurchase Ratio"] = self._clamp01(self._nz(i.get("repurchase_ratio_pct"), 0) / 80.0) * 10.0
-        # Team/ops
         s["Experience with Domain"] = self._clamp01(self._nz(i.get("domain_experience_years"), 3) / 15.0) * 10.0
         s["Quality of Experience in Domain"] = self._clamp01(self._nz(i.get("quality_of_experience_index"), 5) / 10.0) * 10.0
         s["Size"] = self._clamp01(self._nz(i.get("team_size"), 10) / 200.0) * 10.0
@@ -234,12 +193,10 @@ class SSQDeepDiveCalculator:
         s["CAC"] = (1.0 - self._clamp01(self._nz(i.get("cac_inr"), 0) / 25_000)) * 10.0
         s["Variance Analysis"] = self._clamp01(self._nz(i.get("variance_analysis_index"), 5) / 10.0) * 10.0
         s["MRR Growth Rate"] = self._clamp01(self._nz(i.get("mrr_growth_rate_pct"), 0) / 200.0) * 10.0
-        # Finance ratios
         s["D/E Ratio"] = (1.0 - self._clamp01(self._nz(i.get("de_ratio"), 0) / 3.0)) * 10.0
         s["GPM"] = self._clamp01(self._nz(i.get("gpm_pct"), 60) / 90.0) * 10.0
         s["NR"] = self._clamp01(self._nz(i.get("nr_inr"), 0) / 1_000_000_000) * 10.0
         s["Net Income Ratio"] = self._clamp01(self._nz(i.get("net_income_ratio_pct"), 0) / 40.0) * 10.0
-        # IP
         s["Filed Patents"] = self._clamp01(self._nz(i.get("filed_patents"), 0) / 10.0) * 10.0
         s["Approved Patents"] = self._clamp01(self._nz(i.get("approved_patents"), 0) / 10.0) * 10.0
         return s
@@ -248,7 +205,6 @@ class SSQDeepDiveCalculator:
         scores = self._score()
         weights = dict(self.BASE_WEIGHTS)
         if isinstance(ai_weights, dict) and ai_weights:
-            # normalize ai weights to sum to base sum
             base_sum = sum(weights.values())
             ai_sum = sum(float(v) for v in ai_weights.values() if isinstance(v, (int, float)))
             if ai_sum > 0:
@@ -258,7 +214,6 @@ class SSQDeepDiveCalculator:
                         weights[k] = float(v) * scale
                     except Exception:
                         pass
-        # weighted sum
         total_w = sum(weights.values())
         agg = 0.0
         for k, w in weights.items():
@@ -281,7 +236,7 @@ class ExternalDataIntegrator:
             logger.info("[engine] Public comps API disabled or key missing.")
 
     def get_public_comps(self, ticker: str) -> Dict[str, Any]:
-        if not self.enabled or self.ts is None:
+        if not self.enabled or self.ts is None or not ticker:
             return {"notice": "Public comps unavailable.", "ticker": ticker}
         try:
             data, meta = self.ts.get_quote_endpoint(symbol=ticker)  # type: ignore
@@ -325,7 +280,7 @@ class NextGenVCEngine:
             except Exception as e:
                 logger.warning(f"[engine] DeepResearchService disabled: {e}")
 
-    # ---------- helpers ----------
+    # ------- helpers (FX, factors, valuation) -------
     def _fx_rate(self) -> float:
         try:
             return float(os.environ.get("FX_INR_PER_USD") or "") or 83.0
@@ -433,7 +388,6 @@ class NextGenVCEngine:
 
         low_m, high_m = self._sector_stage_bands(sector, stage)
         if ai_band and all(isinstance(x, (int, float)) for x in ai_band):
-            # Blend 50/50 with AI suggestion
             low_m = 0.5 * low_m + 0.5 * float(ai_band[0])
             high_m = 0.5 * high_m + 0.5 * float(ai_band[1])
 
@@ -452,8 +406,8 @@ class NextGenVCEngine:
         high_abs = max(low_abs + 0.25e6, arr_usd_abs * high)
         return float(low_abs), float(high_abs)
 
-    # ---------- main ----------
-    async def comprehensive_analysis(self, inputs: Dict[str, Any], comps_ticker: str) -> Dict[str, Any]:
+    # ------- main -------
+    async def comprehensive_analysis(self, inputs: Dict[str, Any], comps_ticker: str = "") -> Dict[str, Any]:
         # Focus area
         fa = FocusArea.ENHANCE_URBAN_LIFESTYLE
         fa_val = str(inputs.get("focus_area", "")).strip()
@@ -462,7 +416,7 @@ class NextGenVCEngine:
                 fa = x
                 break
 
-        # Product maturity adjusted for certain areas
+        # Product maturity adjustments
         product_stage_score = float(inputs.get("product_stage_score", 5.0))
         if fa == FocusArea.LIVE_HEALTHY:
             ce_map = {"None": 1, "Pre-clinical": 3, "Phase I/II": 6, "Phase III": 8, "Approved": 9}
@@ -473,6 +427,7 @@ class NextGenVCEngine:
             trl = max(1.0, min(9.0, trl))
             product_stage_score = float(product_stage_score * 0.5 + (trl / 9.0) * 10.0 * 0.5)
 
+        # Base profile
         profile = AdvancedStartupProfile(
             company_name=str(inputs.get("company_name", "Untitled Company")),
             stage=str(inputs.get("stage", "Series A")),
@@ -491,7 +446,28 @@ class NextGenVCEngine:
             investor_quality_score=float(inputs.get("investor_quality_score", 5.0)),
         )
 
-        # Optional AI subjective scoring (team/investor)
+        founder_profile_payload: Dict[str, Any] = {}
+        if self.research and inputs.get("founder_linkedin_url"):
+            try:
+                founder_profile_payload = await asyncio.to_thread(
+                    self.research.founder_profile,
+                    str(inputs.get("founder_linkedin_url")),
+                    str(inputs.get("founder_x_url") or "") or None,
+                    profile.company_name,
+                    profile.sector,
+                    profile.stage,
+                )
+                # Apply founder signals to execution/network quality
+                exec_sig = founder_profile_payload.get("execution_signals", None)
+                net_sig = founder_profile_payload.get("network_strength", None)
+                if isinstance(exec_sig, (int, float)):
+                    profile.adaptability_score = float(0.7 * profile.adaptability_score + 0.3 * max(0.0, min(10.0, exec_sig)))
+                if isinstance(net_sig, (int, float)):
+                    profile.investor_quality_score = float(0.7 * profile.investor_quality_score + 0.3 * max(0.0, min(10.0, net_sig)))
+            except Exception as e:
+                logger.warning(f"[engine] Founder profile analysis failed: {e}")
+
+        # Optional AI subjective scoring (team/investor) — still supported
         ai_subjectives: Dict[str, Any] = {}
         if self.research and (inputs.get("ai_score_team_execution") or inputs.get("ai_score_investor_quality")):
             context = {
@@ -502,7 +478,7 @@ class NextGenVCEngine:
                 "evidence": {
                     "team": inputs.get("team_ai_evidence", ""),
                     "investors": inputs.get("investor_ai_evidence", ""),
-                    "summary": inputs.get("product_desc", "")[:600],
+                    "summary": str(inputs.get("product_desc", ""))[:600],
                 }
             }
             try:
@@ -510,18 +486,18 @@ class NextGenVCEngine:
                 t = ai_subjectives.get("team_execution_score")
                 v = ai_subjectives.get("investor_quality_score")
                 if inputs.get("ai_score_team_execution") and isinstance(t, (int, float)) and 0 <= t <= 10:
-                    profile.adaptability_score = float(t)  # reuse as execution proxy
+                    profile.adaptability_score = float(0.5 * profile.adaptability_score + 0.5 * t)
                 if inputs.get("ai_score_investor_quality") and isinstance(v, (int, float)) and 0 <= v <= 10:
-                    profile.investor_quality_score = float(v)
+                    profile.investor_quality_score = float(0.5 * profile.investor_quality_score + 0.5 * v)
             except Exception as e:
                 logger.warning(f"[engine] AI subjectives failed: {e}")
 
-        # Base SSQ (traditional)
+        # SSQ base
         ssq_report = SpeedscaleQuotientCalculator(inputs, profile).calculate()
         ssq_base = float(ssq_report.get("ssq_score", 5.0))
 
-        # SSQ Deep-Dive (from detailed factors) + optional AI weights
-        ai_ssq_weights: Dict[str, float] = {}
+        # SSQ deep-dive
+        ai_ssq_weights = {}
         ai_ssq_adj = 0.0
         if self.research and inputs.get("use_ai_ssq_weights"):
             try:
@@ -530,14 +506,11 @@ class NextGenVCEngine:
                 ai_ssq_adj = float(ai_insights.get("ssq_adjustment", 0.0))
             except Exception as e:
                 logger.warning(f"[engine] AI SSQ insights failed: {e}")
-        ssq_deep_calc = SSQDeepDiveCalculator(inputs.get("ssq_deep_dive_factors", {}))
-        ssq_deep_out = ssq_deep_calc.compute(ai_weights=ai_ssq_weights, ai_adjustment=ai_ssq_adj)
-        ssq_deep = float(ssq_deep_out.get("ssq_deep_dive_score", ssq_base))
-        # Final SSQ: blend base and deep-dive (60/40)
-        ssq_final = round(0.6 * ssq_base + 0.4 * ssq_deep, 1)
+        ssq_deep = SSQDeepDiveCalculator(inputs.get("ssq_deep_dive_factors", {})).compute(ai_weights=ai_ssq_weights, ai_adjustment=ai_ssq_adj)
+        ssq_final = round(0.6 * ssq_base + 0.4 * float(ssq_deep.get("ssq_deep_dive_score", ssq_base)), 1)
         ssq_report["ssq_score"] = ssq_final
 
-        # Online predictor (optional)
+        # Online predictor / enrichment / research
         async def _run_online() -> Dict[str, Any]:
             if self.online_predictor is None:
                 return {}
@@ -547,7 +520,6 @@ class NextGenVCEngine:
                 logger.warning(f"[engine] Online predictor failed: {e}")
                 return {}
 
-        # Enrichment and research
         async def _run_enrichment() -> Dict[str, Any]:
             if self.enrichment is None:
                 return {}
@@ -572,7 +544,7 @@ class NextGenVCEngine:
                 logger.warning(f"[engine] Deep research failed: {e}")
                 return {"error": "Research unavailable right now."}
 
-        # Valuation assist (multiples)
+        # AI valuation assist
         ai_mult_band: Optional[Tuple[float, float]] = None
         ai_multiple_payload: Dict[str, Any] = {}
         if self.research and inputs.get("use_ai_valuation_assist"):
@@ -599,7 +571,6 @@ class NextGenVCEngine:
             except Exception as e:
                 logger.warning(f"[engine] AI valuation assist failed: {e}")
 
-        # Parallelize optional tasks
         online_task = asyncio.create_task(_run_online())
         enrich_task = asyncio.create_task(_run_enrichment())
         research_task = asyncio.create_task(_run_research())
@@ -642,8 +613,7 @@ class NextGenVCEngine:
             return {"time_series_data": pd.DataFrame(hist), "narrative_summary": f"Based on current financials and 5% monthly revenue growth, the company {summary}"}
 
         sim_task = asyncio.to_thread(_simulate)
-        comps_task = asyncio.to_thread(self.data_integrator.get_public_comps, comps_ticker)
-
+        comps_task = asyncio.to_thread(self.data_integrator.get_public_comps, comps_ticker or "")
         async def _run_forecast() -> Dict[str, Any]:
             if self.fundraise_forecast is None:
                 return {}
@@ -652,7 +622,6 @@ class NextGenVCEngine:
             except Exception as e:
                 logger.warning(f"[engine] Fundraise forecast failed: {e}")
                 return {}
-
         forecast_task = asyncio.create_task(_run_forecast())
         sim_res, comps_res, forecast = await asyncio.gather(sim_task, comps_task, forecast_task)
 
@@ -666,10 +635,9 @@ class NextGenVCEngine:
 
         final_verdict = {"predicted_valuation_range_usd": valuation_range_str, "success_probability_percent": round(prob * 100.0, 1)}
 
-        # Desired outcomes passthrough for memo synthesis
         desired_outcomes = inputs.get("desired_outcomes", {}) or {}
 
-        # Research-amplified IC memo (use provider to refine if available)
+        # Research-amplified IC memo
         memo: Dict[str, Any] = {}
         ext = market_analysis.get("external_research", {}) if market_analysis else {}
         ext_memo = ext.get("memo", {}) if isinstance(ext, dict) else {}
@@ -680,7 +648,6 @@ class NextGenVCEngine:
                 "valuation": {"range_usd": valuation_range_str, "low_abs_usd": round(low_abs, 2), "high_abs_usd": round(high_abs, 2)},
                 "kpis": {
                     "ssq": float(ssq_final),
-                    "ssq_deep_dive": ssq_deep_out,
                     "burn_multiple": round(burn_mult, 2),
                     "annual_growth_pct": round(growth_ann, 1),
                     "rule_of_40": round(ro40, 1),
@@ -689,13 +656,13 @@ class NextGenVCEngine:
                     "arr_usd": round(arr_usd_abs, 2),
                     "team_size": profile.team_size,
                 },
+                "founder_profile": founder_profile_payload,
                 "subjectives_ai": ai_subjectives,
                 "valuation_ai": ai_multiple_payload,
                 "inputs": {
                     "ltv_cac_ratio": float(inputs.get("ltv_cac_ratio", 3.5)),
                     "investor_quality_score": float(profile.investor_quality_score),
                     "product_desc": str(inputs.get("product_desc", ""))[:800],
-                    "founder_bio": str(inputs.get("founder_bio", ""))[:800],
                     "desired_outcomes": desired_outcomes,
                 },
                 "research": {"summary": ext.get("summary", ""), "sections": ext.get("sections", {}), "sources": ext.get("sources", [])[:20]},
@@ -716,43 +683,33 @@ class NextGenVCEngine:
                 logger.warning(f"[engine] Memo refinement failed: {e}")
 
         if not memo:
-            if isinstance(ext_memo, dict) and ext_memo.get("executive_summary"):
-                memo = {
-                    "executive_summary": ext_memo.get("executive_summary", ""),
-                    "bull_case_narrative": ext_memo.get("catalysts", "") or ext_memo.get("investment_thesis", ""),
-                    "bear_case_narrative": ext_memo.get("risks", ""),
-                    "recommendation": ext_memo.get("recommendation", "Watchlist"),
-                    "conviction": ext_memo.get("conviction", "Medium"),
-                    **{k: v for k, v in ext_memo.items() if k not in {"executive_summary"}}
-                }
-            else:
-                memo = {
-                    "executive_summary": (
-                        f"{profile.company_name} — {profile.sector}, {profile.stage}. "
-                        f"ARR ≈ {self._fmt_usd_m(arr_usd_abs)} | SSQ {ssq_final:.1f} (Deep {ssq_deep_out.get('ssq_deep_dive_score', ssq_final):.1f}) | "
-                        f"Rule of 40 {ro40:.0f} | Burn multiple {burn_mult:.2f}. Valuation: {valuation_range_str}."
-                    ),
-                    "investment_thesis": "Compelling wedge and secular tailwinds; path to premium multiples requires sustained growth and capital efficiency.",
-                    "market": "Attractive demand vectors and room for share capture within adjacent categories.",
-                    "product": "Differentiation via execution pace and defensible UX/infra; roadmap should deepen moat.",
-                    "traction": "Improving traffic and conversion; opportunity to formalize lighthouse logos.",
-                    "unit_economics": f"LTV/CAC ≈ {float(inputs.get('ltv_cac_ratio', 3.5)):.1f}, churn ≈ {churn_pct:.1f}%/mo, gross margin ≈ {float(inputs.get('gross_margin_pct',60)):.0f}%.",
-                    "gtm": "Mix of PLG and partner-led; expand channels with disciplined CAC thresholds.",
-                    "competition": "Fragmented field; incumbents strong in distribution but slower in product velocity.",
-                    "team": str(inputs.get("founder_bio", ""))[:800],
-                    "risks": "Competitive intensity, GTM efficiency, macro fundraising window.",
-                    "catalysts": "12–18m: feature launches, enterprise deals, geo expansion.",
-                    "round_dynamics": f"Stage {profile.stage}; investor quality {float(profile.investor_quality_score):.1f}/10.",
-                    "use_of_proceeds": "Strengthen GTM, product, data infra; selective leadership hires.",
-                    "valuation_rationale": f"Sector/stage ARR multiples adjusted by quality factors yield {valuation_range_str}.",
-                    "kpis_next_12m": f"Targets: {desired_outcomes if desired_outcomes else 'Rule of 40 > 50; burn multiple < 1.5; NRR > 110%; ≥2x ARR.'}",
-                    "exit_paths": "Strategic M&A optionality; IPO feasible with scale and margins.",
-                    "bull_case_narrative": "Premium multiples via sustained growth, improving margins, and durable retention.",
-                    "bear_case_narrative": "Slower growth or capital intensity caps multiple; dilution risk.",
-                    "recommendation": "Invest" if (final_verdict["success_probability_percent"] >= 68) else ("Watchlist" if final_verdict["success_probability_percent"] >= 52 else "Pass"),
-                    "conviction": "High" if (final_verdict["success_probability_percent"] >= 78) else ("Medium" if final_verdict["success_probability_percent"] >= 58 else "Low"),
-                    "speed_scaling_deep_dive": ssq_deep_out,
-                }
+            memo = {
+                "executive_summary": (
+                    f"{profile.company_name} — {profile.sector}, {profile.stage}. "
+                    f"ARR ≈ {self._fmt_usd_m(arr_usd_abs)} | SSQ {ssq_final:.1f} | Rule of 40 {ro40:.0f} | "
+                    f"Burn multiple {burn_mult:.2f}. Valuation: {valuation_range_str}."
+                ),
+                "investment_thesis": "Compelling wedge and secular tailwinds; path to premium multiples requires sustained growth and capital efficiency.",
+                "market": "Attractive demand vectors and room for share capture within adjacent categories.",
+                "product": "Differentiation via execution pace and defensible UX/infra; roadmap should deepen moat.",
+                "traction": "Improving traffic and conversion; opportunity to formalize lighthouse logos.",
+                "unit_economics": f"LTV/CAC ≈ {float(inputs.get('ltv_cac_ratio', 3.5)):.1f}, churn ≈ {churn_pct:.1f}%/mo, gross margin ≈ {float(inputs.get('gross_margin_pct',60)):.0f}%.",
+                "gtm": "Mix of PLG and partner-led; expand channels with disciplined CAC thresholds.",
+                "competition": "Fragmented field; incumbents strong in distribution but slower in product velocity.",
+                "team": f"Founder signals: exec={founder_profile_payload.get('execution_signals','N/A')}, network={founder_profile_payload.get('network_strength','N/A')}.",
+                "risks": "Competitive intensity, GTM efficiency, macro fundraising window.",
+                "catalysts": "12–18m: feature launches, enterprise deals, geo expansion.",
+                "round_dynamics": f"Stage {profile.stage}; investor quality {float(profile.investor_quality_score):.1f}/10.",
+                "use_of_proceeds": "Strengthen GTM, product, data infra; selective leadership hires.",
+                "valuation_rationale": f"Sector/stage ARR multiples adjusted by quality factors yield {valuation_range_str}.",
+                "kpis_next_12m": f"Targets: {desired_outcomes if desired_outcomes else 'Rule of 40 > 50; burn multiple < 1.5; NRR > 110%; ≥2x ARR.'}",
+                "exit_paths": "Strategic M&A optionality; IPO feasible with scale and margins.",
+                "bull_case_narrative": "Premium multiples via sustained growth, improving margins, and durable retention.",
+                "bear_case_narrative": "Slower growth or capital intensity caps multiple; dilution risk.",
+                "recommendation": "Invest" if (final_verdict["success_probability_percent"] >= 68) else ("Watchlist" if final_verdict["success_probability_percent"] >= 52 else "Pass"),
+                "conviction": "High" if (final_verdict["success_probability_percent"] >= 78) else ("Medium" if final_verdict["success_probability_percent"] >= 58 else "Low"),
+                "speed_scaling_deep_dive": ssq_deep,
+            }
 
         return {
             "final_verdict": final_verdict,
@@ -768,8 +725,9 @@ class NextGenVCEngine:
             "market_deep_dive": market_analysis,
             "public_comps": comps_res,
             "profile": profile,
+            "founder_profile": founder_profile_payload,
             "ssq_report": ssq_report,
-            "ssq_deep_dive": ssq_deep_out,
+            "ssq_deep_dive": ssq_deep,
             "ai_diagnostics": {"subjectives": ai_subjectives, "valuation": ai_multiple_payload},
             "fundraise_forecast": forecast,
             "ml_predictions": {"online": online_pred, "legacy": {}},
