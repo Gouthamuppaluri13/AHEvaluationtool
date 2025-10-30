@@ -242,16 +242,14 @@ def render_company_profile_step() -> Dict[str, Any]:
     required = ["company_name", "focus_area", "sector", "location", "stage", "founder_type", "product_desc"]
     is_valid = all(bool(inputs.get(k)) for k in required)
     col_next, _ = st.columns([1, 5])
-    col_next.button("Next →", disabled=not is_valid, on_click=lambda: _persist_profile_and_next(inputs, is_valid), use_container_width=True)
+    if col_next.button("Next →", disabled=not is_valid, use_container_width=True):
+        if is_valid:
+            st.session_state.profile_inputs = inputs
+            st.session_state.wizard_step = 1
+            st.rerun()
     if not is_valid:
         st.caption("Fill all required fields to continue.")
     return inputs
-
-def _persist_profile_and_next(inputs: Dict[str, Any], is_valid: bool):
-    if not is_valid: return
-    st.session_state.profile_inputs = inputs
-    st.session_state.wizard_step = 1
-    st.experimental_rerun()
 
 def render_sector_specific_metrics(focus_area: str, sector: str) -> Dict[str, Any]:
     extra: Dict[str, Any] = {}
@@ -325,13 +323,14 @@ def render_metrics_step(profile: Dict[str, Any]) -> Dict[str, Any]:
     col_back, col_ticker, col_run = st.columns([1, 2, 2])
     comps_ticker = col_ticker.text_input("Public Comps Ticker", st.session_state.get("comps_ticker", "ZOMATO.BSE"))
     if col_back.button("← Back"):
-        st.session_state.wizard_step = 0; st.experimental_rerun()
+        st.session_state.wizard_step = 0
+        st.rerun()
     if col_run.button("Run Analysis", use_container_width=True):
         merged = {**profile, **inputs}
         st.session_state.view = 'analysis'
         st.session_state.inputs = merged
         st.session_state.comps_ticker = comps_ticker or "ZOMATO.BSE"
-        st.experimental_rerun()
+        st.rerun()
 
     st.session_state.comps_ticker = comps_ticker
     return inputs
@@ -392,7 +391,7 @@ def render_analysis_area(report):
         st.session_state.view = 'input'
         for k in keys_to_clear:
             st.session_state.pop(k, None)
-        st.experimental_rerun()
+        st.rerun()
 
     render_summary_dashboard(report)
     section_heading("Deep Dive")
@@ -413,7 +412,7 @@ def render_analysis_area(report):
                     with cols[i % 2]:
                         st.markdown(f"**{k.replace('_',' ').title()}**")
                         st.write(memo[k])
-        dl = st.download_button("Download Memo (Markdown)", data=memo_to_markdown(memo), file_name=f"{company_name}_Investment_Memo.md", mime="text/markdown")
+        st.download_button("Download Memo (Markdown)", data=memo_to_markdown(memo), file_name=f"{company_name}_Investment_Memo.md", mime="text/markdown")
 
     with tabs[1]:
         cols = st.columns([1,1])
@@ -481,7 +480,7 @@ async def main():
                 logging.error("Analysis failed", exc_info=True)
                 if st.button("Try Again"):
                     st.session_state.view = 'input'
-                    st.experimental_rerun()
+                    st.rerun()
 
 if __name__ == "__main__":
     asyncio.run(main())
