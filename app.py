@@ -15,7 +15,7 @@ from services.pdf_ingest import PDFIngestor  # PDF auto-parse (optional)
 apply_theme(page_title="Anthill AI+ Evaluation", page_icon="🦅")
 
 # Map optional secrets into env (used by dependencies)
-for k in ["HUGGINGFACE_MODEL_ID", "MODEL_ARTIFACT_NAME", "MODEL_ASSET_URL", "FX_INR_PER_USD"]:
+for k in ["HUGGINGFACE_MODEL_ID", "MODEL_ARTIFACT_NAME", "MODEL_ASSET_URL", "FX_INR_PER_USD", "RESEARCH_API_URL", "RESEARCH_MODEL"]:
     try:
         val = st.secrets.get(k)
         if val:
@@ -26,7 +26,7 @@ for k in ["HUGGINGFACE_MODEL_ID", "MODEL_ARTIFACT_NAME", "MODEL_ASSET_URL", "FX_
 # Hero
 hero(
     "Anthill AI+ Evaluation",
-    "Minimal, elegant, glass‑themed VC copilot. Now powered by Grok for deep‑dives."
+    "Minimal, elegant, glass‑themed VC copilot with deep web/X research."
 )
 
 @st.cache_resource
@@ -35,8 +35,9 @@ def load_engine():
         engine = NextGenVCEngine(
             st.secrets.get("TAVILY_API_KEY"),
             st.secrets.get("ALPHA_VANTAGE_KEY"),
-            None,  # Gemini disabled
-            st.secrets.get("GROK_API_KEY"),  # Grok key
+            None,  # no Gemini
+            # Accept either RESEARCH_API_KEY or GROK_API_KEY from secrets; the service will fallback too
+            st.secrets.get("RESEARCH_API_KEY") or st.secrets.get("GROK_API_KEY"),
         )
         return engine
     except Exception as e:
@@ -94,26 +95,26 @@ def create_spider_chart(data, title):
 
 def display_deep_dive_intel(data: Dict[str, Any]):
     section_heading("🌐 Market Deep-Dive")
-    if not isinstance(data, dict) or "error" in data:
-        st.error(data.get("error", "Market analysis data is not available."))
+    if not isinstance(data, dict):
+        st.info("Deep-dive not available yet.")
         return
 
-    # Grok-powered research (primary)
-    grok = data.get("grok_research", {}) or {}
-    st.subheader("🛰️ Grok Research (X + Web Deep Dive)")
-    if "notice" in grok:
-        st.info(grok["notice"])
-    elif "error" in grok:
-        st.warning(grok["error"])
+    # External research (provider-agnostic)
+    ext = data.get("external_research", {}) or {}
+    st.subheader("🔎 External Research (Web Deep Dive)")
+    if "notice" in ext:
+        st.info(ext["notice"])
+    elif "error" in ext:
+        st.info("External research was unavailable at this time. Please try again.")
     else:
-        if grok.get("summary"):
+        if ext.get("summary"):
             with card():
-                st.write(grok["summary"])
-        sections = grok.get("sections", {}) or {}
+                st.write(ext["summary"])
+        sections = ext.get("sections", {}) or {}
         if sections:
             colL, colR = st.columns(2)
-            left_keys = ["overview", "products", "business_model", "funding", "investors", "leadership", "traction", "customers"]
-            right_keys = ["competitors", "moat", "partnerships", "risks", "regulatory", "controversies", "hiring", "tech_stack"]
+            left_keys = ["overview", "products", "business_model", "gtm", "unit_economics", "funding", "investors", "leadership"]
+            right_keys = ["hiring", "traction", "customers", "pricing", "competitors", "moat", "partnerships", "regulatory", "risks", "tech_stack", "roadmap"]
             with colL:
                 for k in left_keys:
                     if sections.get(k):
@@ -124,7 +125,7 @@ def display_deep_dive_intel(data: Dict[str, Any]):
                     if sections.get(k):
                         st.markdown(f"**{k.replace('_', ' ').title()}**")
                         st.write(sections[k])
-        sources = grok.get("sources", []) or []
+        sources = ext.get("sources", []) or []
         if sources:
             st.markdown("**Citations**")
             for s in sources[:20]:
@@ -404,6 +405,20 @@ def render_analysis_area(report):
         with card():
             st.markdown(memo.get('executive_summary', 'Not available.'), unsafe_allow_html=True)
 
+        # Full IC memo (rich details)
+        with st.expander("Full IC memo (details)"):
+            ic_fields = [
+                "investment_thesis", "market", "product", "traction", "unit_economics", "gtm",
+                "competition", "team", "risks", "catalysts", "round_dynamics",
+                "use_of_proceeds", "valuation_rationale", "kpis_next_12m", "exit_paths"
+            ]
+            cols = st.columns(2)
+            for i, k in enumerate(ic_fields):
+                with cols[i % 2]:
+                    if memo.get(k):
+                        st.markdown(f"**{k.replace('_',' ').title()}**")
+                        st.write(memo[k])
+
         st.markdown("---")
         cc1, cc2 = st.columns(2, gap="large")
         with cc1:
@@ -477,13 +492,13 @@ async def main():
     if st.session_state.view == 'input':
         render_input_area()
     elif st.session_state.view == 'analysis':
-        with st.spinner("Calculating SSQ... Running Grok deep‑dive across X and the web... Building memo..."):
+        with st.spinner("Calculating SSQ... Running deep web/X research... Building IC-grade memo..."):
             try:
                 report = await engine.comprehensive_analysis(st.session_state.inputs, st.session_state.comps_ticker)
                 st.session_state.report = report
                 render_analysis_area(report)
             except Exception as e:
-                st.error(f"A critical error occurred during analysis: {e}")
+                st.error("A critical error occurred during analysis. Please try again.")
                 logging.error(f"Analysis failed: {e}", exc_info=True)
                 if st.button("⬅️ Try Again"):
                     st.session_state.view = 'input'
