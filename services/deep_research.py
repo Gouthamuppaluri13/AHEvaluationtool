@@ -9,14 +9,12 @@ from urllib.parse import urlparse
 
 
 def _first_json(text: str) -> Optional[Dict[str, Any]]:
-    # Fenced JSON first
     m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL | re.IGNORECASE)
     if m:
         try:
             return json.loads(m.group(1))
         except Exception:
             pass
-    # Greedy object fallback
     m = re.search(r"\{.*\}", text, flags=re.DOTALL)
     if m:
         try:
@@ -164,7 +162,7 @@ class DeepResearchService:
 
         return json.dumps({"error": f"external_research_unavailable: {last_err}"}), "error"
 
-    # ---------- Public: core research ----------
+    # ---------- Public: core company research ----------
     def research(self, company: str, sector: str, location: str, description: str) -> Dict[str, Any]:
         if not self.enabled:
             return {"notice": "External research service is not configured.", "summary": "", "sections": {}, "sources": [], "memo": {}}
@@ -255,17 +253,6 @@ Rules:
 
     # ---------- Public: subjective AI scoring ----------
     def ai_score_subjectives(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Score subjective factors like team execution and investor quality using provided evidence.
-        Returns STRICT JSON:
-        {
-          "team_execution_score": 0-10,
-          "investor_quality_score": 0-10,
-          "rationale": "...",
-          "red_flags": "...",
-          "confidence": 0-1
-        }
-        """
         if not self.enabled:
             return {}
         system = (
@@ -279,18 +266,8 @@ Rules:
             res["_diagnostics"] = {"route": route}
         return res if isinstance(res, dict) else {}
 
-    # ---------- Public: valuation assist (multiples + peers) ----------
+    # ---------- Public: valuation assist ----------
     def valuation_assist(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Suggest ARR multiple band and rationale based on sector, stage, geography, and signals.
-        Returns STRICT JSON:
-        {
-          "suggested_arr_multiple_low": float,
-          "suggested_arr_multiple_high": float,
-          "rationale": "...",
-          "peer_set": [{"name":"...", "note":"..."}, ...]
-        }
-        """
         if not self.enabled:
             return {}
         system = (
@@ -304,17 +281,8 @@ Rules:
             res["_diagnostics"] = {"route": route}
         return res if isinstance(res, dict) else {}
 
-    # ---------- Public: SSQ insights (weights + notes) ----------
+    # ---------- Public: SSQ insights ----------
     def ssq_insights(self, deep_factors: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Analyze Speed Scaling deep-dive factors and propose weights, factor notes, and an adjustment -0.5..+0.5 to SSQ.
-        Returns STRICT JSON:
-        {
-          "weights": {"Maximum Market Size": 0.05, ...},
-          "factor_notes": {"Maximum Market Size": "note", ...},
-          "ssq_adjustment": float  # -0.5..+0.5
-        }
-        """
         if not self.enabled:
             return {}
         system = (
@@ -327,3 +295,46 @@ Rules:
         if isinstance(res, dict):
             res["_diagnostics"] = {"route": route}
         return res if isinstance(res, dict) else {}
+
+    # ---------- Public: Founder profile deep dive ----------
+    def founder_profile(self, linkedin_url: str, twitter_url: Optional[str], company: str, sector: str, stage: str) -> Dict[str, Any]:
+        """
+        Pull public signals from LinkedIn and X (Twitter) profiles. Return STRICT JSON:
+        {
+          "summary": "...",
+          "experience_years": float,
+          "leadership_roles": ["...", ...],
+          "prior_companies": [{"name":"...", "role":"...", "duration_years": 0.0}],
+          "education": [{"school":"...", "degree":"...", "year": 2020}],
+          "domain_expertise": ["...", ...],
+          "functional_expertise": ["...", ...],
+          "notable_achievements": ["...", ...],
+          "exits": [{"company":"...", "type":"acq|ipo", "year": 2021}],
+          "fundraises_led": [{"company":"...", "round":"Seed|A|B|...", "amount_usd": 0}],
+          "public_engagement": {"x_followers": 0, "linkedin_followers": 0, "avg_posts_per_month": 0.0},
+          "network_strength": 0-10,
+          "execution_signals": 0-10,
+          "risk_flags": ["...", ...],
+          "references": ["...", ...],
+          "sources": [{"title":"...", "url":"...", "snippet":"...", "confidence": 0.0}]
+        }
+        """
+        if not self.enabled:
+            return {}
+        system = (
+            "You are a VC analyst. Use web_search to analyze the founder's public LinkedIn and X(Twitter) profiles and related press/posts. "
+            "Extract objective, verifiable signals. Return STRICT JSON as specified. Avoid speculation."
+        )
+        user = json.dumps({
+            "linkedin_url": linkedin_url,
+            "twitter_url": twitter_url,
+            "company": company,
+            "sector": sector,
+            "stage": stage
+        })
+        content, route = self._chat_with_retries(system, user)
+        data = _first_json(content or "") or {}
+        if isinstance(data, dict):
+            data["_diagnostics"] = {"route": route}
+        data["sources"] = _normalize_sources(data.get("sources", []), max_n=20)
+        return data if isinstance(data, dict) else {}
