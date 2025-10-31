@@ -1,6 +1,6 @@
 """
-VC engine with research-amplified IC memo, AI-scored subjectives, valuation assist, Speed Scaling Deep-Dive,
-and Founder profile intelligence (LinkedIn + X) that influences execution/network quality.
+VC engine with research-amplified IC memo, AI-scored subjectives, valuation assist,
+Speed Scaling Deep-Dive, Founder profile intelligence, and VC-aware hallucination audit.
 """
 
 import logging
@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional, List, Tuple
 
 import pandas as pd
 
-# Optional: Alpha Vantage (kept; app no longer asks for ticker)
+# Optional: Alpha Vantage (kept; app does not require a ticker)
 try:
     from alpha_vantage.timeseries import TimeSeries  # type: ignore
     HAS_ALPHA = True
@@ -26,22 +26,33 @@ try:
     from services.model_registry import ModelRegistry  # type: ignore
 except Exception:
     ModelRegistry = None  # type: ignore
+
 try:
     from models.online_predictor import OnlinePredictor  # type: ignore
 except Exception:
     OnlinePredictor = None  # type: ignore
+
 try:
     from services.fundraise_forecast import FundraiseForecastService  # type: ignore
 except Exception:
     FundraiseForecastService = None  # type: ignore
+
 try:
     from services.data_enrichment import DataEnrichmentService  # type: ignore
 except Exception:
     DataEnrichmentService = None  # type: ignore
+
 try:
     from services.deep_research import DeepResearchService  # type: ignore
 except Exception:
     DeepResearchService = None  # type: ignore
+
+# VC-aware hallucination scoring (new)
+try:
+    from metrics import compute_vc_ahe_score, VC_TRENDS  # type: ignore
+except Exception:
+    compute_vc_ahe_score = None  # type: ignore
+    VC_TRENDS = {"ai_dominance": 0.62, "esg_weight": 0.15, "exit_rate": 0.25}  # type: ignore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -107,8 +118,8 @@ class SpeedscaleQuotientCalculator:
     def _efficiency(self) -> float:
         ltv_cac = float(self.inputs.get("ltv_cac_ratio", 1.0))
         normalized_ltv_cac = min(max(ltv_cac, 0) / 5.0, 1.0) * 10.0
-        burn = float(self.inputs.get("burn", 0))
-        arr = float(self.inputs.get("arr", 0))
+        burn = float(self.profile.monthly_burn)
+        arr = float(self.profile.annual_revenue)
         burn_multiple = (burn * 12.0) / (arr + 1e-6) if arr > 0 else 99.0
         normalized_burn = max(0.0, 1.0 - (burn_multiple / 3.0)) * 10.0
         return (normalized_ltv_cac * 0.5) + (normalized_burn * 0.5)
@@ -412,6 +423,22 @@ class NextGenVCEngine:
         high_abs = max(low_abs + 0.25e6, arr_usd_abs * high)
         return float(low_abs), float(high_abs)
 
+    # --------- VC-aware hallucination audit helpers (new) ----------
+    @staticmethod
+    def _project_simple_cf(arr_usd: float, gross_margin_pct: float, annual_growth_pct: float) -> List[float]:
+        """
+        Tiny 5-year free-cash-flow proxy from ARR, GM%, and growth.
+        Conservative: FCF ≈ ARR * GM% * 0.25, grown annually.
+        """
+        year1_fcf = max(0.0, arr_usd) * max(0.0, min(100.0, gross_margin_pct)) / 100.0 * 0.25
+        g = max(-90.0, min(500.0, annual_growth_pct)) / 100.0
+        cfs: List[float] = []
+        f = year1_fcf
+        for _ in range(5):
+            cfs.append(f)
+            f *= (1.0 + g)
+        return cfs
+
     # ------- main -------
     async def comprehensive_analysis(self, inputs: Dict[str, Any], comps_ticker: str = "") -> Dict[str, Any]:
         # Focus area
@@ -676,7 +703,8 @@ class NextGenVCEngine:
                 "probability": final_verdict["success_probability_percent"],
             }
             try:
-                refined = await asyncio.to_thread(self.research.build_ic_memo, memo_ctx)
+                # DeepResearchService may not implement build_ic_memo; wrap guard
+                refined = await asyncio.to_thread(getattr(self.research, "build_ic_memo"), memo_ctx)  # type: ignore
                 if isinstance(refined, dict) and refined.get("executive_summary"):
                     memo = {
                         "executive_summary": refined.get("executive_summary", ""),
@@ -718,6 +746,28 @@ class NextGenVCEngine:
                 "speed_scaling_deep_dive": ssq_deep,
             }
 
+        # -------- VC-aware hallucination audit (new) --------
+        hallucination_audit: Dict[str, Any] = {}
+        if compute_vc_ahe_score is not None:
+            try:
+                audit_response = memo.get("executive_summary") or str(memo)[:2000]
+                audit_prompt = (
+                    f"Summarize {profile.company_name} ({profile.sector}, {profile.stage}) "
+                    f"with ARR≈{self._fmt_usd_m(arr_usd_abs)}, GM≈{float(inputs.get('gross_margin_pct', 60.0)):.0f}%, "
+                    f"growth≈{growth_ann:.0f}%."
+                )
+                projected_cf = self._project_simple_cf(arr_usd_abs, float(inputs.get("gross_margin_pct", 60.0)), growth_ann)
+                hallucination_audit = compute_vc_ahe_score(
+                    prompt=audit_prompt,
+                    response=audit_response,
+                    trends=VC_TRENDS,
+                    projected_cf=projected_cf
+                )
+            except Exception as e:
+                logger.warning(f"[engine] VC-aware hallucination audit failed: {e}")
+                hallucination_audit = {"error": "vc_ahe_failed"}
+        # ---------------------------------------------------
+
         return {
             "final_verdict": final_verdict,
             "investment_memo": memo,
@@ -738,4 +788,5 @@ class NextGenVCEngine:
             "ai_diagnostics": {"subjectives": ai_subjectives, "valuation": ai_multiple_payload},
             "fundraise_forecast": forecast,
             "ml_predictions": {"online": online_pred, "legacy": {}},
+            "hallucination_audit": hallucination_audit,  # new
         }
