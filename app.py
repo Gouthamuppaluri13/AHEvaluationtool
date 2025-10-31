@@ -150,7 +150,6 @@ def create_risk_bar_chart(risks: Dict[str, float], key=None):
 
 # FIX: draw label inside the bullet figure’s white “pill”
 def create_bullet_indicator(title: str, current: float, target: float, suffix: str = "", invert: bool = False, key=None):
-    # invert=False => higher is better; invert=True => lower is better
     perf = float(current or 0.0)
     tgt = float(target or 0.0)
     axis_max = max(1.0, perf, tgt) * 1.25
@@ -170,14 +169,11 @@ def create_bullet_indicator(title: str, current: float, target: float, suffix: s
             "threshold": {"line": {"color": PALETTE["accent"], "width": 2}, "thickness": 0.75, "value": tgt}
         },
     ))
-
-    # Label placed inside top whitespace (the “pill”)
     fig.add_annotation(
         x=0.0, y=1.06, xref="paper", yref="paper",
         text=title, showarrow=False, align="left",
         font=dict(size=12, color="#2f334d")
     )
-
     fig.update_layout(template="anthill", height=120, margin=dict(l=6, r=6, t=30, b=6))
     st.plotly_chart(fig, use_container_width=True, key=key, config={"displayModeBar": False})
 
@@ -190,6 +186,25 @@ def fmt_usd_m(amount_abs_usd: float) -> str:
 def annualize_growth(monthly_pct: float) -> float:
     g = monthly_pct / 100.0
     return (pow(1.0 + g, 12) - 1.0) * 100.0
+
+# NEW: tiny horizontal bar to replace native st.progress
+def create_tiny_bar(label: str, value_0_to_10: float, key=None):
+    v = max(0.0, min(10.0, float(value_0_to_10)))
+    fig = go.Figure(go.Bar(
+        x=[v], y=[label],
+        orientation="h",
+        marker=dict(color=PALETTE["primary"]),
+        hoverinfo="skip",
+        width=0.4
+    ))
+    fig.update_layout(
+        template="anthill",
+        height=70,
+        xaxis=dict(range=[0, 10], showgrid=False, showticklabels=False, zeroline=False),
+        yaxis=dict(showgrid=False, showticklabels=True),
+        margin=dict(l=6, r=6, t=10, b=10)
+    )
+    st.plotly_chart(fig, use_container_width=True, key=key, config={"displayModeBar": False})
 
 # =========================
 # Research helpers
@@ -496,7 +511,8 @@ def render_summary_dashboard(report):
     with row1[1]:
         with card(title="SSQ Snapshot", accent="accent"):
             st.metric("Score", f"{ssq.get('ssq_score', 0.0)} / 10")
-            st.progress((ssq.get('ssq_score', 0.0) or 0.0) / 10.0)
+            # REPLACED native st.progress with a tiny bar to avoid stray BaseWeb tracks
+            create_tiny_bar("SSQ", float(ssq.get('ssq_score', 0.0) or 0.0), key="ssq_tiny_bar")
             st.caption(f"Momentum {ssq.get('momentum',0)} · Efficiency {ssq.get('efficiency',0)} · Scalability {ssq.get('scalability',0)}")
     with row1[2]:
         with card(title="Deal Score & Risks", accent="warn"):
@@ -535,7 +551,6 @@ def render_summary_dashboard(report):
         churn_m = float(inputs.get("monthly_churn_pct", 2.0))
         annual_ret = pow(1.0 - max(0, min(50.0, churn_m))/100.0, 12) * 100.0
         colb1, colb2, colb3, colb4 = st.columns(4, gap="medium")
-        # No external card titles here; label is inside the figure
         with colb1:
             with card():
                 create_bullet_indicator("ARR (USD)", current=arr_usd, target=float(desired.get("target_arr_usd", arr_usd)), suffix="", key="bullet_arr")
@@ -750,7 +765,6 @@ def render_analysis_area(report):
         if audit and not audit.get("error"):
             score = float(audit.get("vc_ahe_score", 0.0))
             with card(title="Overall VC AHE Score", accent="primary"):
-                # scale 0..1 to 0..10 gauge for consistency with other gauges
                 create_gauge_chart(score * 10.0, "0–10 scale (scaled from 0–1)", key="ahe_gauge_overall")
                 c1, c2, c3, c4 = st.columns(4, gap="medium")
                 c1.metric("Bias Risk", audit.get("bias_risk", "N/A"))
