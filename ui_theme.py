@@ -19,9 +19,20 @@ def apply_theme(page_title: str = "App", page_icon: str = "🔎"):
           --ah-success: #34C759;
           --ah-warn: #FF9F0A;
           --ah-danger: #FF3B30;
-          --ah-space-1: 4px; --ah-space-2: 8px; --ah-space-3: 12px; --ah-space-4: 16px; --ah-space-5: 20px; --ah-space-6: 24px;
+
+          --ah-space-1: 4px;
+          --ah-space-2: 8px;
+          --ah-space-3: 12px;
+          --ah-space-4: 16px;
+          --ah-space-5: 20px;
+          --ah-space-6: 24px;
           --ah-radius: 12px;
-          --ah-h1: 28px; --ah-h2: 20px; --ah-h3: 16px; --ah-body: 14px; --ah-small: 12px;
+
+          --ah-h1: 28px;
+          --ah-h2: 20px;
+          --ah-h3: 16px;
+          --ah-body: 14px;
+          --ah-small: 12px;
         }
 
         html, body, [class*="css"] {
@@ -38,21 +49,30 @@ def apply_theme(page_title: str = "App", page_icon: str = "🔎"):
         [data-testid="stVerticalBlock"] { gap: 10px !important; }
         [data-testid="stHorizontalBlock"] { gap: 12px !important; }
 
+        /* Typography and wrapping */
         .ah-hero h1 { font-size: var(--ah-h1); font-weight: 700; margin: 0; letter-spacing: -0.01em; }
         .ah-hero small { color: var(--ah-muted); font-size: var(--ah-small); }
 
         .ah-section { padding-top: 6px; border-top: 1px solid rgba(15,18,33,0.06); }
-        .ah-section h2 { font-size: var(--ah-h2); font-weight: 700; margin: 0; letter-spacing: -0.01em; overflow-wrap:anywhere; word-break:break-word; }
+        .ah-section h2 {
+          font-size: var(--ah-h2); font-weight: 700; margin: 0;
+          letter-spacing: -0.01em;
+          overflow-wrap:anywhere; word-break:break-word; white-space: normal;
+        }
         .ah-section small { color: var(--ah-muted); font-size: var(--ah-small); display:block; margin-top: 2px; }
 
         .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
-          margin: 0 0 8px 0 !important; color: var(--ah-fg) !important; letter-spacing: -0.01em; overflow-wrap:anywhere; word-break:break-word;
+          margin: 0 0 8px 0 !important;
+          color: var(--ah-fg) !important;
+          letter-spacing: -0.01em;
+          overflow-wrap:anywhere; word-break:break-word; white-space: normal;
         }
         .stMarkdown h1 { font-size: var(--ah-h1) !important; }
         .stMarkdown h2 { font-size: var(--ah-h2) !important; }
         .stMarkdown h3 { font-size: var(--ah-h3) !important; color: #2F334D !important; }
         .stMarkdown p, .stMarkdown li { font-size: 13.5px !important; line-height: 1.28rem !important; overflow-wrap:anywhere; }
 
+        /* Card */
         .ah-card {
           background: var(--ah-card);
           border: 1px solid var(--ah-border);
@@ -64,36 +84,52 @@ def apply_theme(page_title: str = "App", page_icon: str = "🔎"):
           max-width: 100%;
           box-sizing: border-box;
         }
-
         .ah-card-header { display:flex; align-items:center; gap:8px; margin: 0 0 6px 0; max-width: 100%; }
         .ah-card-header .ah-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--ah-primary); box-shadow: 0 0 0 3px rgba(10,132,255,0.15); flex: 0 0 auto; }
         .ah-card-header h3 { font-size: var(--ah-h3); font-weight: 700; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .ah-subtle { color: var(--ah-muted); overflow-wrap:anywhere; }
 
+        /* Prevent any element from spilling out of columns/cards */
+        [data-testid="stAppViewContainer"] * { max-width: 100%; box-sizing: border-box; }
+
+        /* Tabs, Buttons, Inputs */
         .stTabs [data-baseweb="tab-list"] { gap: 6px !important; }
         .stTabs [data-baseweb="tab"] { padding: 6px 10px !important; font-size: 13px !important; border-radius: 8px !important; background: #fff; border: 1px solid rgba(15,18,33,0.08); }
         .stButton > button { padding: 8px 12px !important; border-radius: 10px !important; font-size: 13px !important; }
         .stTextInput, .stSelectbox, .stTextArea, .stNumberInput, .stSlider { margin-bottom: 8px !important; }
         .stTextInput input, .stTextArea textarea, .stSelectbox [role="combobox"], .stNumberInput input { max-width: 100%; width: 100%; box-sizing: border-box; overflow-wrap:anywhere; }
 
-        /* Prevent any element from spilling out of columns/cards */
-        [data-testid="stAppViewContainer"] * { max-width: 100%; box-sizing: border-box; }
-
         /* Plotly & canvases must stay inside */
         .js-plotly-plot, .plot-container, .svg-container, canvas { max-width: 100% !important; }
 
-        /* CRITICAL: Hide stray BaseWeb/Streamlit progress tracks globally */
+        /* ================= Ghost track/“pill” killers ================ */
+        /* 1) Hide Streamlit progress (unused now) */
         [data-testid="stProgress"], div[role="progressbar"] {
-          display: none !important;
-          visibility: hidden !important;
-          height: 0 !important;
-          margin: 0 !important;
-          padding: 0 !important;
+          display: none !important; visibility: hidden !important; height: 0 !important; margin: 0 !important; padding: 0 !important;
         }
-
-        /* Remove phantom top-margins that made text look outside the box */
+        /* 2) Hide BaseWeb disabled/empty sliders (placeholders that look like long rounded bars) */
+        div[role="slider"][aria-disabled="true"],
+        div[role="slider"]:not([aria-valuenow]) {
+          display: none !important;
+        }
+        /* 3) Hide empty BaseWeb input shells that sometimes render as full-width rounded boxes */
+        [data-baseweb="base-input"]:empty,
+        [data-baseweb="input"]:empty,
+        .stTextInput div:empty,
+        .stNumberInput div:empty {
+          display: none !important;
+        }
+        /* 4) If a ghost element appears immediately after the card header, nuke it */
+        .ah-card-header + div[role="progressbar"],
+        .ah-card-header + div[role="slider"]:not([aria-valuenow]),
+        .ah-card-header + [data-baseweb="base-input"]:empty,
+        .ah-card-header + [data-baseweb="input"]:empty {
+          display: none !important;
+        }
+        /* 5) Remove phantom top-margins that can make text look outside the box */
         .ah-card > :first-child { margin-top: 0 !important; }
         .ah-section + .ah-card { margin-top: 8px !important; }
+        /* ============================================================ */
 
         div[data-testid="stExpander"] { border-radius: 10px; border: 1px solid rgba(15,18,33,0.06); }
         .stDataFrame, .stTable { font-size: 13px; }
