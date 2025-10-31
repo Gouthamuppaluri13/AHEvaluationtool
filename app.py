@@ -24,7 +24,6 @@ PALETTE = {
     "danger": "#FF3B30",
     "muted": "#8E8E93",
 }
-
 pio.templates["anthill"] = go.layout.Template(
     layout=go.Layout(
         font=dict(family="Inter, -apple-system, Segoe UI, Roboto, system-ui, sans-serif", size=12, color="#0f1221"),
@@ -149,40 +148,36 @@ def create_risk_bar_chart(risks: Dict[str, float], key=None):
     fig.update_layout(template="anthill", title=dict(text="Top Risk Drivers"), height=240, xaxis_title="Score (0–10)", yaxis_title="")
     st.plotly_chart(fig, use_container_width=True, key=key)
 
-# FIX: draw label inside the figure's white "pill" so text appears in the empty bar area
+# FIX: draw label inside the bullet figure’s white “pill”
 def create_bullet_indicator(title: str, current: float, target: float, suffix: str = "", invert: bool = False, key=None):
     # invert=False => higher is better; invert=True => lower is better
     perf = float(current or 0.0)
     tgt = float(target or 0.0)
-    # Ensure a sensible axis even when values are tiny/zero
     axis_max = max(1.0, perf, tgt) * 1.25
 
     fig = go.Figure(go.Indicator(
         mode="number+gauge+delta",
         value=perf,
         number={"suffix": suffix, "font": {"size": 16}},
-        delta={
-            "reference": tgt,
-            "increasing": {"color": PALETTE["success"] if invert else PALETTE["danger"]},
-            "decreasing": {"color": PALETTE["danger"] if invert else PALETTE["success"]},
-        },
+        delta={"reference": tgt,
+               "increasing": {"color": PALETTE["success"] if invert else PALETTE["danger"]},
+               "decreasing": {"color": PALETTE["danger"] if invert else PALETTE["success"]}},
         domain={"x": [0, 1], "y": [0, 1]},
         gauge={
             "shape": "bullet",
             "axis": {"range": [0, axis_max]},
             "bar": {"color": PALETTE["primary"]},
-            "threshold": {"line": {"color": PALETTE["accent"], "width": 2}, "thickness": 0.75, "value": tgt},
+            "threshold": {"line": {"color": PALETTE["accent"], "width": 2}, "thickness": 0.75, "value": tgt}
         },
     ))
 
-    # Label inside the plot's top whitespace (aligned to the white pill)
+    # Label placed inside top whitespace (the “pill”)
     fig.add_annotation(
         x=0.0, y=1.06, xref="paper", yref="paper",
         text=title, showarrow=False, align="left",
         font=dict(size=12, color="#2f334d")
     )
 
-    # Tight margins so the annotation sits nicely in the white strip
     fig.update_layout(template="anthill", height=120, margin=dict(l=6, r=6, t=30, b=6))
     st.plotly_chart(fig, use_container_width=True, key=key, config={"displayModeBar": False})
 
@@ -201,7 +196,7 @@ def annualize_growth(monthly_pct: float) -> float:
 # =========================
 def _render_paragraphs(title: str, content: str):
     if not content: return
-    st.markdown(f"**{title}**")
+    if title: st.markdown(f"**{title}**")
     parts = [p.strip() for p in content.replace("\r\n", "\n").split("\n\n") if p.strip()]
     for p in parts:
         st.markdown(p)
@@ -540,7 +535,7 @@ def render_summary_dashboard(report):
         churn_m = float(inputs.get("monthly_churn_pct", 2.0))
         annual_ret = pow(1.0 - max(0, min(50.0, churn_m))/100.0, 12) * 100.0
         colb1, colb2, colb3, colb4 = st.columns(4, gap="medium")
-        # NOTE: no external card titles here; the figure renders its own label inside the white strip
+        # No external card titles here; label is inside the figure
         with colb1:
             with card():
                 create_bullet_indicator("ARR (USD)", current=arr_usd, target=float(desired.get("target_arr_usd", arr_usd)), suffix="", key="bullet_arr")
@@ -693,7 +688,7 @@ def render_analysis_area(report):
 
     render_summary_dashboard(report)
 
-    tabs = st.tabs(["Investment Memo", "Deep Dive", "Research & Sources", "Inputs", "Forecast", "ML"])
+    tabs = st.tabs(["Investment Memo", "Deep Dive", "Research & Sources", "Inputs", "Forecast", "ML", "Hallucination Audit"])
     memo = report.get('investment_memo', {}) or {}
     sim_res = report.get('simulation', {}) or {}
     md = report.get('market_deep_dive', {}) or {}
@@ -749,6 +744,32 @@ def render_analysis_area(report):
             val = online.get("predicted_valuation_usd", None)
             col3.metric("Next Valuation (USD)", f"${val:,.0f}" if isinstance(val, (int, float)) and val else "N/A")
 
+    with tabs[6]:
+        section_heading("Hallucination Audit", "VC‑aware hallucination score with diagnostics")
+        audit = report.get("hallucination_audit", {}) or {}
+        if audit and not audit.get("error"):
+            score = float(audit.get("vc_ahe_score", 0.0))
+            with card(title="Overall VC AHE Score", accent="primary"):
+                # scale 0..1 to 0..10 gauge for consistency with other gauges
+                create_gauge_chart(score * 10.0, "0–10 scale (scaled from 0–1)", key="ahe_gauge_overall")
+                c1, c2, c3, c4 = st.columns(4, gap="medium")
+                c1.metric("Bias Risk", audit.get("bias_risk", "N/A"))
+                c2.metric("Valuation Risk", audit.get("valuation_risk", "N/A"))
+                c3.metric("Uncertainty", f"{audit.get('uncertainty', 0.0):.2f}")
+                c4.metric("Trend Relevance", f"{audit.get('trend_relevance', 0.0):.2f}")
+            with card(title="Components", accent="accent"):
+                comp_rows = [{
+                    "ROUGE-L": audit.get("rouge_l", 0.0),
+                    "BERT F1 (or trigram F1)": audit.get("bert_f", 0.0),
+                    "1 − Uncertainty": 1.0 - float(audit.get("uncertainty", 0.0)),
+                    "Math/Science": audit.get("math_score", 0.0),
+                    "Finance": audit.get("finance_score", 0.0),
+                    "Trend": audit.get("trend_relevance", 0.0),
+                }]
+                st.dataframe(comp_rows, use_container_width=True)
+        else:
+            st.info("No hallucination audit available yet.")
+
 # =========================
 # Main
 # =========================
@@ -767,7 +788,7 @@ async def main():
             render_metrics_step(st.session_state.get("profile_inputs", {}))
 
     elif st.session_state.view == 'analysis':
-        with st.spinner("Running deep research, founder profiling, AI scoring, and valuation..."):
+        with st.spinner("Running deep research, founder profiling, AI scoring, hallucination audit, and valuation..."):
             try:
                 report = await engine.comprehensive_analysis(
                     st.session_state.inputs,
