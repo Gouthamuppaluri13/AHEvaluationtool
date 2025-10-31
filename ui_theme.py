@@ -45,68 +45,95 @@ def apply_theme(page_title: str = "App", page_icon: str = "🔎"):
             var(--ah-bg) !important;
         }
 
-        /* Streamlit containers + base spacing */
+        /* Streamlit shell spacing */
         .block-container { padding-top: 8px !important; padding-bottom: 16px !important; max-width: 1200px; }
         [data-testid="stVerticalBlock"] { gap: 10px !important; }
         [data-testid="stHorizontalBlock"] { gap: 12px !important; }
 
-        /* Typography */
+        /* Typography and wrapping (prevents text overflow) */
         .ah-hero h1 { font-size: var(--ah-h1); font-weight: 700; margin: 0; letter-spacing: -0.01em; }
         .ah-hero small { color: var(--ah-muted); font-size: var(--ah-small); }
 
-        .ah-section h2 { font-size: var(--ah-h2); font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+        .ah-section { padding-top: 6px; border-top: 1px solid rgba(15,18,33,0.06); }
+        .ah-section h2 { 
+          font-size: var(--ah-h2); font-weight: 700; margin: 0;
+          letter-spacing: -0.01em; 
+          overflow-wrap: anywhere; word-break: break-word; white-space: normal;
+        }
         .ah-section small { color: var(--ah-muted); font-size: var(--ah-small); display:block; margin-top: 2px; }
-
-        .ah-subtle { color: var(--ah-muted); }
 
         .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
           margin: 0 0 8px 0 !important;
           color: var(--ah-fg) !important;
           letter-spacing: -0.01em;
+          overflow-wrap: anywhere; word-break: break-word; white-space: normal;
         }
         .stMarkdown h1 { font-size: var(--ah-h1) !important; }
         .stMarkdown h2 { font-size: var(--ah-h2) !important; }
         .stMarkdown h3 { font-size: var(--ah-h3) !important; color: #2F334D !important; }
-        .stMarkdown p, .stMarkdown li { font-size: 13.5px !important; line-height: 1.28rem !important; }
+        .stMarkdown p, .stMarkdown li { font-size: 13.5px !important; line-height: 1.28rem !important; overflow-wrap:anywhere; }
 
-        /* Headings divider line to separate sections */
-        .ah-section { padding-top: 6px; border-top: 1px solid rgba(15,18,33,0.06); }
-
-        /* Card */
+        /* Card container — clamp overflow and width to prevent “out of box” */
         .ah-card {
           background: var(--ah-card);
           border: 1px solid var(--ah-border);
           border-radius: var(--ah-radius);
           padding: 12px 14px;
-          box-shadow: 0 6px 20px rgba(15,18,33,0.05), 0 1px 2px rgba(15,18,33,0.05);
+          box-shadow: 0 4px 16px rgba(15,18,33,0.05), 0 1px 2px rgba(15,18,33,0.05);
+          overflow: hidden;              /* keep children inside */
+          position: relative;            /* anchors absolutely-positioned children correctly */
+          max-width: 100%;               /* never exceed streamlit column width */
+          box-sizing: border-box;
         }
+
+        /* Card header — wrap text, no negative offsets */
         .ah-card-header {
-          display:flex; align-items:center; gap:8px; margin-bottom:6px;
+          display:flex; align-items:center; gap:8px; margin: 0 0 6px 0;
+          max-width: 100%;
         }
         .ah-card-header .ah-dot {
           width: 8px; height: 8px; border-radius: 999px; background: var(--ah-primary);
           box-shadow: 0 0 0 3px rgba(10,132,255,0.15);
+          flex: 0 0 auto;
         }
-        .ah-card-header h3 { font-size: var(--ah-h3); font-weight: 700; margin: 0; }
+        .ah-card-header h3 { 
+          font-size: var(--ah-h3); font-weight: 700; margin: 0; 
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; /* header stays in-line */
+        }
+        .ah-subtle { color: var(--ah-muted); overflow-wrap:anywhere; }
 
-        /* Tabs */
+        /* Tabs, Buttons, Inputs */
         .stTabs [data-baseweb="tab-list"] { gap: 6px !important; }
-        .stTabs [data-baseweb="tab"] {
-          padding: 6px 10px !important; font-size: 13px !important; border-radius: 8px !important;
-          background: #fff; border: 1px solid rgba(15,18,33,0.08);
-        }
-
-        /* Buttons and inputs */
+        .stTabs [data-baseweb="tab"] { padding: 6px 10px !important; font-size: 13px !important; border-radius: 8px !important; background: #fff; border: 1px solid rgba(15,18,33,0.08); }
         .stButton > button { padding: 8px 12px !important; border-radius: 10px !important; font-size: 13px !important; }
         .stTextInput, .stSelectbox, .stTextArea, .stNumberInput, .stSlider { margin-bottom: 8px !important; }
+        .stTextInput input, .stTextArea textarea, .stSelectbox [role="combobox"], .stNumberInput input {
+          max-width: 100%; width: 100%; box-sizing: border-box; overflow-wrap:anywhere;
+        }
 
-        /* Metrics */
-        div[data-testid="stMetric"] { margin-bottom: 6px !important; }
+        /* Prevent any widget/container from sticking out of its column */
+        [data-testid="stAppViewContainer"] * {
+          max-width: 100%;
+          box-sizing: border-box;
+        }
 
-        /* Expanders */
+        /* Plotly & canvases — ensure they stay inside cards/columns */
+        .js-plotly-plot, .plot-container, .svg-container, canvas {
+          max-width: 100% !important;
+        }
+
+        /* Remove stray “pill-like” empty tracks/gaps that some BaseWeb widgets render */
+        /* Hide empty progress/slider placeholders not associated with a real widget */
+        [role="progressbar"]:empty, div[aria-disabled="true"][role="slider"]:empty {
+          display: none !important;
+        }
+
+        /* Remove phantom top-margins that make text look outside the box */
+        .ah-card > :first-child { margin-top: 0 !important; }
+        .ah-section + .ah-card { margin-top: 8px !important; }
+
+        /* Expanders, Tables */
         div[data-testid="stExpander"] { border-radius: 10px; border: 1px solid rgba(15,18,33,0.06); }
-
-        /* Tables/DataFrame */
         .stDataFrame, .stTable { font-size: 13px; }
 
         /* Header strip */
@@ -149,6 +176,6 @@ def card(title: str | None = None, subtitle: str | None = None, accent: str = "p
                 unsafe_allow_html=True,
             )
             if subtitle:
-                st.markdown(f'<div class="ah-subtle" style="margin-top:-2px;margin-bottom:6px;">{subtitle}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="ah-subtle" style="margin-top:2px;margin-bottom:6px;">{subtitle}</div>', unsafe_allow_html=True)
         yield
         st.markdown('</div>', unsafe_allow_html=True)
